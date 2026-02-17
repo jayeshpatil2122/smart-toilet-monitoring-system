@@ -1,5 +1,5 @@
 import React, { useEffect } from "react";
-import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, Popup, Tooltip, useMap } from "react-leaflet";
 import L from "leaflet";
 
 // Fix default marker icon issue
@@ -47,7 +47,7 @@ function UserLocation() {
   return null;
 }
 
-function ToiletMap({ toilets, onSelectToilet }) {
+function ToiletMap({ toilets, onSelectToilet, onViewDetails }) {
   return (
     <MapContainer
       center={[20.9333, 77.7513]} // Amaravati center
@@ -68,10 +68,28 @@ function ToiletMap({ toilets, onSelectToilet }) {
             position={[toilet.latitude, toilet.longitude]}
             icon={getMarkerIcon(toilet.status)}
           >
+            <Tooltip direction="top" offset={[0, -20]} opacity={1}>
+              {toilet.name}
+            </Tooltip>
             <Popup>
               <h3>{toilet.name}</h3>
               <p>{toilet.location}</p>
               <p>Status: <b>{toilet.status}</b></p>
+
+              <button
+                onClick={() => onViewDetails(toilet.id)}
+                style={{
+                  marginTop: "5px",
+                  padding: "5px 10px",
+                  backgroundColor: "#17a2b8",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "5px",
+                  marginRight: "5px",
+                }}
+              >
+                View Details
+              </button>
 
               <button
                 onClick={() => onSelectToilet(toilet.id)}
