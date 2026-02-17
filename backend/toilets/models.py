@@ -6,6 +6,9 @@ from django.utils import timezone
 class Toilets(models.Model):
     name = models.CharField(max_length=100)
     location = models.CharField(max_length=200)
+    latitude = models.FloatField(null=True, blank=True)
+    longitude = models.FloatField(null=True, blank=True)
+
     usage_count = models.IntegerField(default=0)
     cleanliness = models.FloatField(default=100.0)
     water_level = models.FloatField(default=100.0)

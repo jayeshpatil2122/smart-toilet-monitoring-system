@@ -1,15 +1,16 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
 import ComplaintForm from "./ComplaintForm.js";
-
+import ToiletMap from "./components/ToiletMap";
+import "./App.css";
 
 function App() {
-
   const [toilets, setToilets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedToilet, setSelectedToilet] = useState(null);
+  const [showAllToilets, setShowAllToilets] = useState(false);
 
-  // Fetch toilets when component loads
+  // Fetch toilets
   useEffect(() => {
     axios
       .get("http://127.0.0.1:8000/api/toilets/")
@@ -23,103 +24,185 @@ function App() {
       });
   }, []);
 
-  // When user clicks submit complaint
   const handleComplaintClick = (toiletId) => {
     setSelectedToilet(toiletId);
   };
 
+  const getStatusClass = (status) => {
+    switch (status?.toLowerCase()) {
+      case "good":
+        return "good";
+      case "moderate":
+        return "moderate";
+      case "critical":
+        return "critical";
+      default:
+        return "good";
+    }
+  };
+
   return (
-    <div style={{ padding: "20px" }}>
-      <h1>Smart Public Toilet</h1>
-      <h2>Nearby Toilets</h2>
+    <div className="app-container">
 
-      {loading && <p>Loading toilets...</p>}
+      {/* HEADER */}
+      <header className="main-header">
+        <h1>Smart Public Toilet</h1>
+        <h2>📍 Nearby Toilets</h2>
+      </header>
 
-      {!loading && toilets.length === 0 && (
-        <p>No toilets found.</p>
+      {/* MAP */}
+      <div style={{ margin: "30px 0" }}>
+        <ToiletMap
+          toilets={toilets}
+          onSelectToilet={(id) => setSelectedToilet(id)}
+        />
+      </div>
+
+      {/* TOGGLE BUTTON */}
+      <div style={{ textAlign: "center", marginBottom: "30px" }}>
+        <button
+          className="all-toilets-btn"
+          onClick={() => setShowAllToilets(!showAllToilets)}
+        >
+          📋 {showAllToilets ? "Hide All Toilets" : "All Toilets"}
+        </button>
+      </div>
+
+      {/* SHOW ALL TOILETS SECTION */}
+      {showAllToilets && (
+        <div>
+
+          {/* Loading */}
+          {loading && (
+            <div className="loading-state">
+              <div className="loading-spinner"></div>
+              <p>Finding toilets near you...</p>
+            </div>
+          )}
+
+          {/* Empty */}
+          {!loading && toilets.length === 0 && (
+            <div className="empty-state">
+              <p>No toilets found in your area.</p>
+            </div>
+          )}
+
+          {/* Grid */}
+          {!loading && toilets.length > 0 && (
+            <div className="toilets-grid">
+              {toilets.map((toilet) => (
+                <div key={toilet.id} className="toilet-card">
+
+                  <div className="toilet-card-header">
+                    <div>
+                      <h3 className="toilet-name">{toilet.name}</h3>
+                      <p className="toilet-location">
+                        📍 {toilet.location}
+                      </p>
+                    </div>
+
+                    <span
+                      className={`status-badge ${getStatusClass(toilet.status)}`}
+                    >
+                      {toilet.status || "Good"}
+                    </span>
+                  </div>
+
+                  <div className="usage-count">
+                    👥 Used {toilet.usage_count || 0} times today
+                  </div>
+
+                  <div className="toilet-metrics">
+
+                    {/* Health */}
+                    <div className="metric-item">
+                      <div className="metric-label">
+                        <span>❤️ Health Score</span>
+                        <span className="metric-value">
+                          {toilet.health_score || 0}%
+                        </span>
+                      </div>
+                      <div className="metric-bar">
+                        <div
+                          className="metric-bar-fill health"
+                          style={{ width: `${toilet.health_score || 0}%` }}
+                        ></div>
+                      </div>
+                    </div>
+
+                    {/* Cleanliness */}
+                    <div className="metric-item">
+                      <div className="metric-label">
+                        <span>✨ Cleanliness</span>
+                        <span className="metric-value">
+                          {toilet.cleanliness || 0}%
+                        </span>
+                      </div>
+                      <div className="metric-bar">
+                        <div
+                          className="metric-bar-fill cleanliness"
+                          style={{ width: `${toilet.cleanliness || 0}%` }}
+                        ></div>
+                      </div>
+                    </div>
+
+                    {/* Water */}
+                    <div className="metric-item">
+                      <div className="metric-label">
+                        <span>💧 Water Level</span>
+                        <span className="metric-value">
+                          {toilet.water_level || 0}%
+                        </span>
+                      </div>
+                      <div className="metric-bar">
+                        <div
+                          className="metric-bar-fill water"
+                          style={{ width: `${toilet.water_level || 0}%` }}
+                        ></div>
+                      </div>
+                    </div>
+
+                  </div>
+
+                  <button
+                    className="complaint-btn"
+                    onClick={() => handleComplaintClick(toilet.id)}
+                  >
+                    📝 Submit Complaint
+                  </button>
+
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
-      {!loading &&
-        toilets.map((toilet) => (
+      {/* MODAL */}
+      {selectedToilet !== null && (
+        <div
+          className="modal-overlay"
+          onClick={() => setSelectedToilet(null)}
+        >
           <div
-            key={toilet.id}
-            style={{
-              border: "1px solid #ccc",
-              padding: "20px",
-              marginBottom: "15px",
-              borderRadius: "8px",
-            }}
+            className="modal-content"
+            onClick={(e) => e.stopPropagation()}
           >
-            <h3>{toilet.name}</h3>
-            <p>Location: {toilet.location}</p>
-
             <button
-              onClick={() => handleComplaintClick(toilet.id)}
-              style={{
-                padding: "8px 15px",
-                backgroundColor: "#007bff",
-                color: "white",
-                border: "none",
-                borderRadius: "5px",
-                cursor: "pointer",
-              }}
+              className="modal-close-btn"
+              onClick={() => setSelectedToilet(null)}
             >
-              Submit Complaint
+              ✕
             </button>
+
+            <h2 className="modal-title">📝 Submit Complaint</h2>
+            <ComplaintForm toiletId={selectedToilet} />
           </div>
-        ))}
+        </div>
+      )}
 
-      {/* Show complaint form if toilet selected */}
-       {selectedToilet !== null && (
-  <div
-    style={{
-      position: "fixed",
-      top: 0,
-      left: 0,
-      width: "100%",
-      height: "100%",
-      backgroundColor: "rgba(0,0,0,0.5)",
-      display: "flex",
-      justifyContent: "center",
-      alignItems: "center",
-      zIndex: 1000,
-    }}
-  >
-    <div
-      style={{
-        backgroundColor: "white",
-        padding: "30px",
-        borderRadius: "10px",
-        width: "400px",
-        position: "relative",
-        boxShadow: "0px 10px 30px rgba(0,0,0,0.2)"
-      }}
-    >
-      <button
-        onClick={() => setSelectedToilet(null)}
-        style={{
-          position: "absolute",
-          top: "10px",
-          right: "10px",
-          border: "none",
-          background: "red",
-          color: "white",
-          borderRadius: "50%",
-          width: "25px",
-          height: "25px",
-          cursor: "pointer",
-        }}
-      >
-        X
-      </button>
-
-      <h2 style={{ marginBottom: "20px" }}>Submit Complaint</h2>
-
-      <ComplaintForm toiletId={selectedToilet} />
     </div>
-  </div>
-)}
-</div>
   );
 }
+
 export default App;

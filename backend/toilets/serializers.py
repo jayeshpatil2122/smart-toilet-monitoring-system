@@ -9,6 +9,8 @@ class ToiletSerializer(serializers.ModelSerializer):
             'id',
             'name',
             'location',
+            'latitude',
+            'longitude',
             'usage_count',
             'cleanliness',
             'water_level',
