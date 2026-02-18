@@ -1,0 +1,16 @@
+from django.urls import path
+
+from . import views
+
+urlpatterns = [
+    path("portal/signup/", views.portal_signup),
+    path("portal/login/", views.portal_login),
+    path("portal/forgot-password/", views.portal_forgot_password),
+    path("portal/reset-password/", views.portal_reset_password),
+    path("signup/", views.worker_signup),
+    path("login/", views.worker_login),
+    path("forgot-password/", views.worker_forgot_password),
+    path("reset-password/", views.worker_reset_password),
+    path("my-complaints/", views.worker_my_complaints),
+    path("my-complaints/<int:complaint_id>/status/", views.worker_update_complaint_status),
+]

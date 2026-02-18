@@ -1,0 +1,775 @@
+/* ========================================
+   SMART PUBLIC TOILET - ADMIN THEME
+   Modern Light Theme with Vibrant Accents
+   ======================================== */
+
+:root {
+  /* Primary Colors - Light Theme */
+  --primary: #6366f1;
+  --primary-dark: #4f46e5;
+  --primary-light: #818cf8;
+  --secondary: #8b5cf6;
+  --accent: #f472b6;
+  --accent-cyan: #06b6d4;
+  --accent-purple: #a855f7;
+  
+  /* Status Colors */
+  --success: #10b981;
+  --warning: #f59e0b;
+  --error: #ef4444;
+  --info: #3b82f6;
+  
+  /* Light Theme Colors */
+  --bg-light: #f8fafc;
+  --bg-white: #ffffff;
+  --bg-card: #ffffff;
+  --bg-hover: #f1f5f9;
+  --bg-input: #ffffff;
+  
+  /* Text Colors */
+  --text-primary: #1e293b;
+  --text-secondary: #475569;
+  --text-muted: #94a3b8;
+  
+  /* Borders & Effects */
+  --border-color: #e2e8f0;
+  --border-light: #f1f5f9;
+  --glass-bg: rgba(255, 255, 255, 0.8);
+  --glass-border: rgba(0, 0, 0, 0.08);
+  
+  /* Shadows */
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.08);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.12);
+  --shadow-glow: 0 0 30px rgba(99, 102, 241, 0.15);
+  
+  /* Original Django Variables (kept for compatibility) */
+  --primary-fg: #ffffff;
+  --body-fg: #1e293b;
+  --body-bg: #f8fafc;
+  --body-quiet-color: #64748b;
+  --body-medium-color: #475569;
+  --breadcrumbs-bg: linear-gradient(135deg, #6366f1, #8b5cf6);
+  --breadcrumbs-fg: #ffffff;
+  --breadcrumbs-link-fg: #ffffff;
+  --link-fg: #6366f1;
+  --link-hover-color: #4f46e5;
+  --hairline-color: #e2e8f0;
+  --border-color: #e2e8f0;
+  --error-fg: #dc2626;
+  --message-success-bg: #d1fae5;
+  --message-warning-bg: #fef3c7;
+  --message-error-bg: #fee2e2;
+  --darkened-bg: #f1f5f9;
+  --selected-bg: #e0e7ff;
+}
+
+/* ========================================
+   BASE STYLES
+   ======================================== */
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--bg-light);
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background: 
+    radial-gradient(ellipse at 20% 20%, rgba(99, 102, 241, 0.08) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 80%, rgba(139, 92, 246, 0.06) 0%, transparent 50%),
+    radial-gradient(ellipse at 50% 50%, rgba(244, 114, 182, 0.04) 0%, transparent 60%),
+    var(--bg-light) !important;
+  color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+/* ========================================
+   HEADER & BRANDING
+   ======================================== */
+
+#header {
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%) !important;
+  border-bottom: none !important;
+  box-shadow: 0 4px 20px rgba(99, 102, 241, 0.25) !important;
+  padding: 0 20px !important;
+  height: 60px !important;
+  display: flex !important;
+  align-items: center !important;
+}
+
+#header::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+}
+
+#site-name {
+  display: flex;
+  align-items: center;
+}
+
+#site-name a {
+  color: #ffffff !important;
+  font-size: 1.3rem !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.02em;
+  text-decoration: none !important;
+}
+
+#user-tools {
+  margin-right: 0 !important;
+}
+
+#user-tools a,
+#user-tools span {
+  color: rgba(255, 255, 255, 0.9) !important;
+  font-weight: 500 !important;
+}
+
+#user-tools a:hover {
+  color: #ffffff !important;
+}
+
+/* ========================================
+   BREADCRUMBS
+   ======================================== */
+
+div.breadcrumbs {
+  background: linear-gradient(135deg, #6366f1, #8b5cf6) !important;
+  border: none !important;
+  box-shadow: var(--shadow-sm) !important;
+  padding: 12px 20px !important;
+  color: #ffffff !important;
+  border-radius: 0 0 12px 12px;
+  margin: 0 20px !important;
+}
+
+div.breadcrumbs a {
+  color: rgba(255, 255, 255, 0.9) !important;
+  text-decoration: none !important;
+  transition: color 0.2s ease;
+}
+
+div.breadcrumbs a:hover {
+  color: #ffffff !important;
+  text-decoration: underline !important;
+}
+
+/* ========================================
+   CONTENT AREA
+   ======================================== */
+
+#content {
+  margin-top: 20px !important;
+  padding: 0 20px 40px !important;
+}
+
+#content-main {
+  background: transparent;
+}
+
+/* ========================================
+   CARDS & MODULES
+   ======================================== */
+
+.module,
+#changelist .actions,
+#changelist-filter,
+.inline-group,
+.submit-row,
+.panel {
+  background: var(--bg-white) !important;
+  border: 1px solid var(--border-color) !important;
+  border-radius: 16px !important;
+  box-shadow: var(--shadow-md) !important;
+  padding: 20px !important;
+  margin-bottom: 20px !important;
+}
+
+.module h2,
+.module caption {
+  background: transparent !important;
+  color: var(--text-primary) !important;
+  font-weight: 600 !important;
+  border-bottom: 2px solid var(--primary) !important;
+  padding-bottom: 12px !important;
+  margin-bottom: 16px !important;
+}
+
+/* ========================================
+   TABLES
+   ======================================== */
+
+table {
+  border-collapse: separate !important;
+  border-spacing: 0 !important;
+  width: 100% !important;
+}
+
+table thead th {
+  background: linear-gradient(135deg, #6366f1, #8b5cf6) !important;
+  color: #ffffff !important;
+  font-weight: 600 !important;
+  font-size: 0.85rem !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.05em !important;
+  padding: 14px 16px !important;
+  border-bottom: none !important;
+}
+
+table thead th:first-child {
+  border-top-left-radius: 12px;
+}
+
+table thead th:last-child {
+  border-top-right-radius: 12px;
+}
+
+table tbody tr {
+  background: var(--bg-white) !important;
+  transition: background 0.2s ease;
+}
+
+table tbody tr:hover {
+  background: var(--bg-hover) !important;
+}
+
+table tbody td {
+  padding: 14px 16px !important;
+  border-bottom: 1px solid var(--border-color) !important;
+  color: var(--text-secondary) !important;
+  vertical-align: middle !important;
+}
+
+table tbody tr:nth-child(even) td {
+  background: var(--bg-light);
+}
+
+table tbody tr:nth-child(even):hover td {
+  background: var(--bg-hover) !important;
+}
+
+/* Row actions */
+.row-actions {
+  color: var(--text-muted);
+}
+
+/* ========================================
+   FORMS & INPUTS
+   ======================================== */
+
+input,
+textarea,
+select,
+.vTextField,
+.vIntegerField,
+.vURLField,
+.vTextarea {
+  background: var(--bg-white) !important;
+  border: 1px solid var(--border-color) !important;
+  border-radius: 10px !important;
+  color: var(--text-primary) !important;
+  padding: 12px 16px !important;
+  font-size: 0.95rem !important;
+  transition: all 0.2s ease;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-muted) !important;
+}
+
+input:focus,
+textarea:focus,
+select:focus,
+.vTextField:focus,
+.vIntegerField:focus,
+.vURLField:focus,
+.vTextarea:focus {
+  outline: none !important;
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15), inset 0 1px 2px rgba(0, 0, 0, 0.05) !important;
+}
+
+select {
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2364748b' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 16px center;
+  padding-right: 40px !important;
+}
+
+select option {
+  background: var(--bg-white);
+  color: var(--text-primary);
+}
+
+label {
+  color: var(--text-secondary) !important;
+  font-weight: 600 !important;
+  font-size: 0.9rem !important;
+  margin-bottom: 8px !important;
+  display: block !important;
+}
+
+.form-row {
+  padding: 16px !important;
+  border-bottom: 1px solid var(--border-light) !important;
+}
+
+.form-row:last-child {
+  border-bottom: none !important;
+}
+
+.form-row fieldset {
+  width: 100%;
+}
+
+/* ========================================
+   BUTTONS
+   ======================================== */
+
+.button,
+input[type="submit"],
+input[type="button"],
+.submit-row input,
+a.button {
+  background: linear-gradient(135deg, #6366f1, #4f46e5) !important;
+  border: none !important;
+  border-radius: 10px !important;
+  color: #fff !important;
+  font-weight: 600 !important;
+  padding: 10px 20px !important;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3) !important;
+  transition: all 0.2s ease !important;
+  cursor: pointer !important;
+  text-decoration: none !important;
+}
+
+.button:hover,
+input[type="submit"]:hover,
+input[type="button"]:hover,
+a.button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(99, 102, 241, 0.4) !important;
+  filter: brightness(1.05);
+}
+
+.button.default,
+input[type="submit"].default,
+.submit-row input.default {
+  background: linear-gradient(135deg, #10b981, #059669) !important;
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3) !important;
+}
+
+.button.default:hover,
+input[type="submit"].default:hover,
+.submit-row input.default:hover {
+  box-shadow: 0 6px 16px rgba(16, 185, 129, 0.4) !important;
+}
+
+.button.deletelink,
+input[type="submit"].deletelink {
+  background: linear-gradient(135deg, #ef4444, #dc2626) !important;
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3) !important;
+}
+
+.button.deletelink:hover,
+input[type="submit"].deletelink:hover {
+  box-shadow: 0 6px 16px rgba(239, 68, 68, 0.4) !important;
+}
+
+/* ========================================
+   LINKS
+   ======================================== */
+
+a {
+  color: var(--primary) !important;
+  text-decoration: none !important;
+  transition: color 0.2s ease;
+}
+
+a:hover {
+  color: var(--primary-dark) !important;
+}
+
+a:visited {
+  color: var(--secondary) !important;
+}
+
+/* ========================================
+   SIDEBAR / NAV
+   ======================================== */
+
+#nav-sidebar {
+  background: var(--bg-white) !important;
+  border-right: 1px solid var(--border-color) !important;
+  box-shadow: var(--shadow-sm);
+}
+
+#nav-sidebar a {
+  color: var(--text-secondary) !important;
+  padding: 12px 16px !important;
+  transition: all 0.2s ease;
+  border-radius: 8px;
+  margin: 2px 8px;
+}
+
+#nav-sidebar a:hover {
+  background: var(--bg-hover) !important;
+  color: var(--text-primary) !important;
+}
+
+#nav-sidebar .current-app .section:link,
+#nav-sidebar .current-app .section:visited {
+  background: linear-gradient(135deg, #6366f1, #8b5cf6) !important;
+  color: #fff !important;
+  border-radius: 10px !important;
+  margin: 4px 8px;
+}
+
+/* App labels */
+.model-tools {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+/* ========================================
+   MESSAGES
+   ======================================== */
+
+.messagelist {
+  margin-bottom: 20px !important;
+}
+
+.messagelist li {
+  border-radius: 12px !important;
+  padding: 14px 20px !important;
+  margin-bottom: 10px !important;
+  font-weight: 500;
+  border: 1px solid transparent !important;
+}
+
+.messagelist li.success {
+  background: #d1fae5 !important;
+  border-color: #a7f3d0 !important;
+  color: #047857 !important;
+}
+
+.messagelist li.warning {
+  background: #fef3c7 !important;
+  border-color: #fde68a !important;
+  color: #b45309 !important;
+}
+
+.messagelist li.error {
+  background: #fee2e2 !important;
+  border-color: #fecaca !important;
+  color: #b91c1c !important;
+}
+
+.messagelist li.info {
+  background: #dbeafe !important;
+  border-color: #bfdbfe !important;
+  color: #1d4ed8 !important;
+}
+
+/* ========================================
+   FILTER SIDEBAR
+   ======================================== */
+
+#changelist-filter {
+  background: var(--bg-white) !important;
+  border: 1px solid var(--border-color) !important;
+  border-radius: 16px !important;
+  box-shadow: var(--shadow-md) !important;
+}
+
+#changelist-filter h3 {
+  color: var(--text-primary) !important;
+  font-weight: 600 !important;
+  border-bottom: 2px solid var(--primary) !important;
+  padding-bottom: 12px !important;
+}
+
+#changelist-filter ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+#changelist-filter li {
+  padding: 10px 14px !important;
+  border-radius: 8px !important;
+  transition: background 0.2s ease;
+  margin: 2px 6px;
+}
+
+#changelist-filter li:hover {
+  background: var(--bg-hover) !important;
+}
+
+#changelist-filter li.selected {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(139, 92, 246, 0.15)) !important;
+  border-left: 3px solid var(--primary) !important;
+}
+
+#changelist-filter li.selected a {
+  color: var(--primary) !important;
+  font-weight: 600;
+}
+
+/* ========================================
+   ACTIONS BAR
+   ======================================== */
+
+#changelist .actions {
+  background: var(--bg-white) !important;
+  border: 1px solid var(--border-color) !important;
+  border-radius: 12px !important;
+  padding: 14px 20px !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 16px !important;
+  flex-wrap: wrap !important;
+  box-shadow: var(--shadow-md) !important;
+}
+
+#changelist .actions label {
+  color: var(--text-secondary) !important;
+  font-weight: 600 !important;
+  font-size: 0.9rem !important;
+  margin: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+}
+
+#changelist .actions select {
+  background: var(--bg-white) !important;
+  border: 2px solid var(--primary) !important;
+  border-radius: 10px !important;
+  color: var(--text-primary) !important;
+  padding: 10px 40px 10px 14px !important;
+  font-size: 0.9rem !important;
+  font-weight: 500 !important;
+  cursor: pointer !important;
+  min-width: 200px !important;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.15) !important;
+  transition: all 0.2s ease !important;
+}
+
+#changelist .actions select:hover {
+  border-color: var(--primary-dark) !important;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.25) !important;
+}
+
+#changelist .actions select:focus {
+  outline: none !important;
+  border-color: var(--primary-dark) !important;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15) !important;
+}
+
+#changelist .actions .button {
+  padding: 10px 18px !important;
+  font-size: 0.9rem !important;
+  margin: 0 !important;
+}
+
+#changelist .actions span {
+  color: var(--text-muted) !important;
+  font-size: 0.85rem !important;
+}
+
+/* Action selector container */
+.action-counter {
+  color: var(--text-secondary) !important;
+  font-size: 0.85rem !important;
+  font-weight: 500 !important;
+  margin-left: auto !important;
+  background: var(--bg-light);
+  padding: 6px 12px;
+  border-radius: 20px;
+}
+
+/* Clear filters link */
+#changelist-filter-chooser {
+  color: var(--primary) !important;
+  font-weight: 500;
+}
+
+/* ========================================
+   DASHBOARD
+   ======================================== */
+
+.dashboard .module {
+  background: var(--bg-white) !important;
+  border: 1px solid var(--border-color) !important;
+  border-radius: 16px !important;
+  box-shadow: var(--shadow-md) !important;
+}
+
+.dashboard .module table th {
+  background: linear-gradient(135deg, #6366f1, #8b5cf6) !important;
+  color: #ffffff !important;
+}
+
+.dashboard .module table td {
+  background: var(--bg-white) !important;
+  color: var(--text-secondary) !important;
+}
+
+.dashboard .module table tr:hover td {
+  background: var(--bg-hover) !important;
+}
+
+/* ========================================
+   LOGIN PAGE
+   ======================================== */
+
+.login #container {
+  background: var(--bg-white) !important;
+  border: 1px solid var(--border-color) !important;
+  border-radius: 24px !important;
+  box-shadow: 0 25px 50px rgba(0, 0, 0, 0.15), 0 0 40px rgba(99, 102, 241, 0.1) !important;
+  padding: 40px !important;
+  margin-top: 60px !important;
+  max-width: 420px;
+}
+
+.login #header {
+  background: linear-gradient(135deg, #6366f1, #8b5cf6) !important;
+  box-shadow: var(--shadow-md) !important;
+  padding: 20px !important;
+  margin: -40px -40px 20px -40px !important;
+  border-radius: 24px 24px 0 0;
+}
+
+.login #site-name a {
+  font-size: 1.5rem !important;
+}
+
+.login-form {
+  margin-top: 20px;
+}
+
+.login-form input {
+  background: var(--bg-white) !important;
+  border: 2px solid var(--border-color) !important;
+  border-radius: 12px !important;
+  padding: 14px 18px !important;
+  font-size: 1rem !important;
+}
+
+.login-form input:focus {
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15) !important;
+}
+
+.login-form .submit-row {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 20px 0 0 !important;
+}
+
+.login-form .submit-row input {
+  width: 100%;
+  padding: 14px !important;
+  font-size: 1.1rem !important;
+}
+
+/* ========================================
+   RESPONSIVE
+   ======================================== */
+
+@media (max-width: 1024px) {
+  .module,
+  #changelist .actions,
+  #changelist-filter,
+  .inline-group,
+  .submit-row {
+    border-radius: 12px !important;
+  }
+  
+  #header {
+    padding: 0 12px !important;
+  }
+  
+  #content {
+    padding: 0 12px 30px !important;
+  }
+}
+
+@media (max-width: 768px) {
+  #header {
+    flex-direction: column;
+    height: auto !important;
+    padding: 12px !important;
+  }
+  
+  #site-name {
+    margin-bottom: 8px;
+  }
+  
+  .module,
+  #changelist .actions,
+  #changelist-filter,
+  .inline-group,
+  .submit-row {
+    border-radius: 10px !important;
+    padding: 16px !important;
+  }
+  
+  table thead th,
+  table tbody td {
+    padding: 10px 12px !important;
+    font-size: 0.9rem;
+  }
+}
+
+/* ========================================
+   ANIMATIONS
+   ======================================== */
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.module,
+#changelist .actions,
+#changelist-filter {
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+.loading {
+  animation: pulse 1.5s ease-in-out infinite;
+}

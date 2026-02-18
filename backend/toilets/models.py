@@ -15,7 +15,7 @@ class Toilets(models.Model):
     health_score = models.FloatField(default=100.0)
     alert_level = models.IntegerField(default=1)
     status = models.CharField(max_length=50, default='Good')
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):

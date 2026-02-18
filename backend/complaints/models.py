@@ -98,9 +98,13 @@ class Complaint(models.Model):
 
         # When complaint is marked as resolved
         # Store resolution time automatically
-        if self.status == "Resolved" and not self.resolved_at:
-            self.resolved_at = timezone.now()
-            self.resolution_time = self.resolved_at - self.created_at
+        if self.status == "Resolved":
+            if not self.resolved_at:
+                self.resolved_at = timezone.now()
+                self.resolution_time = self.resolved_at - self.created_at
+        else:
+            self.resolved_at = None
+            self.resolution_time = None
 
         super().save(*args, **kwargs)
 
