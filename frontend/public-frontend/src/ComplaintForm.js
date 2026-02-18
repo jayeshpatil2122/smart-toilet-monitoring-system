@@ -31,14 +31,14 @@ function ComplaintForm({ toiletId }) {
         },
       });
 
-      setMessage("✅ Complaint submitted successfully!");
+      setMessage("Complaint submitted successfully.");
       setMessageType("success");
       setIssueType("Dirty");
       setDescription("");
       setImage(null);
     } catch (error) {
       const responseData = error?.response?.data;
-      let detail = "❌ Failed to submit complaint. Please try again.";
+      let detail = "Failed to submit complaint. Please try again.";
 
       if (typeof responseData === "string") {
         detail = responseData;
@@ -59,10 +59,9 @@ function ComplaintForm({ toiletId }) {
 
   return (
     <form onSubmit={handleSubmit}>
-      {/* Issue Type Select */}
       <div className="form-group">
         <label htmlFor="issueType" className="form-label">
-          🔍 Issue Type
+          Issue Type
         </label>
         <select
           id="issueType"
@@ -70,17 +69,16 @@ function ComplaintForm({ toiletId }) {
           value={issueType}
           onChange={(event) => setIssueType(event.target.value)}
         >
-          <option value="Dirty">🧹 Dirty</option>
-          <option value="No Water">🚿 No Water</option>
-          <option value="Broken">🔧 Broken</option>
-          <option value="Other">❓ Other</option>
+          <option value="Dirty">Dirty</option>
+          <option value="No Water">No Water</option>
+          <option value="Broken">Broken</option>
+          <option value="Other">Other</option>
         </select>
       </div>
 
-      {/* Description Textarea */}
       <div className="form-group">
         <label htmlFor="description" className="form-label">
-          📝 Description
+          Description
         </label>
         <textarea
           id="description"
@@ -93,10 +91,9 @@ function ComplaintForm({ toiletId }) {
         />
       </div>
 
-      {/* Image Upload */}
       <div className="form-group">
         <label htmlFor="image" className="form-label">
-          📷 Upload Image (optional)
+          Upload Image (optional)
         </label>
         <input
           id="image"
@@ -107,17 +104,11 @@ function ComplaintForm({ toiletId }) {
         />
       </div>
 
-      {/* Submit Button */}
       <button type="submit" className="submit-btn" disabled={submitting}>
-        {submitting ? "⏳ Submitting..." : "📤 Submit Complaint"}
+        {submitting ? "Submitting..." : "Submit Complaint"}
       </button>
 
-      {/* Success/Error Message */}
-      {message && (
-        <div className={`form-message ${messageType}`}>
-          {message}
-        </div>
-      )}
+      {message && <div className={`form-message ${messageType}`}>{message}</div>}
     </form>
   );
 }

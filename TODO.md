@@ -1,17 +1,9 @@
-# TODO - Frontend User Panel Updates
+# TODO - Smart Public Toilet Updates
 
-## Task: Update user panel with map as default view and "All toilets" button
+## Tasks:
+- [ ] Update App.js - Add state for detailed view modal
+- [ ] Update App.js - Change onViewDetails to show detailed card instead of complaint form
+- [ ] Update App.js - Remove health-orb from toilet cards (keep only usage count)
+- [ ] Update App.css - Fix close button position on map popup
 
-### Changes to be made:
-
-1. [ ] **App.js** - Update main app structure
-   - Remove map toggle button from header
-   - Make map always visible by default
-   - Add "All toilets" button below the map
-   - When "All toilets" is clicked, show toilet cards
-
-2. [ ] **ToiletMap.js** - Update map behavior
-   - Add hover tooltip with toilet name and details
-   - Change click behavior to open complaint modal directly
-
-### Status: Starting implementation
+## Status: In Progress

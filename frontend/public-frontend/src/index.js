@@ -2,14 +2,16 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import './index.css';
 import App from './App';
+import WorkerApp from './worker/WorkerApp';
 import reportWebVitals from './reportWebVitals';
 import "leaflet/dist/leaflet.css";
 
+const isWorkerRoute = window.location.pathname.startsWith("/worker");
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
   <React.StrictMode>
-    <App />
+    {isWorkerRoute ? <WorkerApp /> : <App />}
   </React.StrictMode>
 );
 
