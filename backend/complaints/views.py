@@ -1,9 +1,33 @@
 from django.db.models import Count
-from rest_framework.decorators import api_view
+from rest_framework.authentication import TokenAuthentication
+from rest_framework.authtoken.models import Token
+from rest_framework.decorators import (
+    api_view,
+    authentication_classes,
+    permission_classes,
+)
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from .models import Complaint
 from .serializers import ComplaintSerializer
+
+
+def _resolve_request_user_from_token(request):
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header:
+        return None
+
+    parts = auth_header.split(" ", 1)
+    if len(parts) != 2 or parts[0].lower() != "token":
+        return None
+
+    token_key = parts[1].strip()
+    if not token_key:
+        return None
+
+    token_obj = Token.objects.select_related("user").filter(key=token_key).first()
+    return token_obj.user if token_obj else None
 
 
 @api_view(["GET"])
@@ -17,9 +41,23 @@ def get_complaints(request):
 def create_complaint(request):
     serializer = ComplaintSerializer(data=request.data, context={"request": request})
     if serializer.is_valid():
-        serializer.save()
+        submitting_user = _resolve_request_user_from_token(request)
+        serializer.save(submitted_by=submitting_user)
         return Response(serializer.data, status=201)
     return Response(serializer.errors, status=400)
+
+
+@api_view(["GET"])
+@authentication_classes([TokenAuthentication])
+@permission_classes([IsAuthenticated])
+def my_complaints(request):
+    complaints = (
+        Complaint.objects.filter(submitted_by=request.user)
+        .select_related("toilet", "assigned_to", "submitted_by")
+        .order_by("-created_at")
+    )
+    serializer = ComplaintSerializer(complaints, many=True, context={"request": request})
+    return Response(serializer.data)
 
 
 @api_view(["GET"])

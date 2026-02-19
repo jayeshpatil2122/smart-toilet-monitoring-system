@@ -13,4 +13,6 @@ urlpatterns = [
     path("reset-password/", views.worker_reset_password),
     path("my-complaints/", views.worker_my_complaints),
     path("my-complaints/<int:complaint_id>/status/", views.worker_update_complaint_status),
+    path("my-alerts/", views.worker_my_alerts),
+    path("my-alerts/<int:alert_id>/status/", views.worker_update_alert_status),
 ]

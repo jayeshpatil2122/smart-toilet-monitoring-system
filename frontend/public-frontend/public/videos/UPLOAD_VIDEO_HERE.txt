@@ -1,0 +1,7 @@
+Put your login background video in this folder.
+
+Expected filename used by code:
+login-bg.mp4
+
+Full path:
+frontend/public-frontend/public/videos/login-bg.mp4

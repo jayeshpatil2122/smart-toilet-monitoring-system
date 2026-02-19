@@ -4,7 +4,9 @@ from .models import Complaint
 
 class ComplaintSerializer(serializers.ModelSerializer):
     image = serializers.ImageField(use_url=True, required=False, allow_null=True)
+    after_image = serializers.ImageField(use_url=True, required=False, allow_null=True)
     assigned_to_username = serializers.CharField(source='assigned_to.username', read_only=True)
+    submitted_by_username = serializers.CharField(source='submitted_by.username', read_only=True)
     toilet_name = serializers.CharField(source='toilet.name', read_only=True)
 
     class Meta:
@@ -16,8 +18,11 @@ class ComplaintSerializer(serializers.ModelSerializer):
             'issue_type',
             'description',
             'image',
+            'after_image',
             'status',
             'priority',
+            'submitted_by',
+            'submitted_by_username',
             'assigned_to',
             'assigned_to_username',
             'created_at',
@@ -26,6 +31,8 @@ class ComplaintSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = (
             'priority',
+            'submitted_by',
+            'submitted_by_username',
             'assigned_to',
             'assigned_to_username',
             'created_at',

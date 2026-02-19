@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import axios from "axios";
 
-function ComplaintForm({ toiletId }) {
+function ComplaintForm({ toiletId, portalToken = "", onComplaintSubmitted = null }) {
   const [issueType, setIssueType] = useState("Dirty");
   const [description, setDescription] = useState("");
   const [image, setImage] = useState(null);
@@ -25,17 +25,27 @@ function ComplaintForm({ toiletId }) {
         formData.append("image", image);
       }
 
-      await axios.post("http://127.0.0.1:8000/api/complaints/create/", formData, {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      });
+      const headers = {
+        "Content-Type": "multipart/form-data",
+      };
+      if (portalToken) {
+        headers.Authorization = `Token ${portalToken}`;
+      }
+
+      const response = await axios.post(
+        "http://127.0.0.1:8000/api/complaints/create/",
+        formData,
+        { headers }
+      );
 
       setMessage("Complaint submitted successfully.");
       setMessageType("success");
       setIssueType("Dirty");
       setDescription("");
       setImage(null);
+      if (typeof onComplaintSubmitted === "function") {
+        onComplaintSubmitted(response.data);
+      }
     } catch (error) {
       const responseData = error?.response?.data;
       let detail = "Failed to submit complaint. Please try again.";

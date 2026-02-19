@@ -39,6 +39,7 @@ class Complaint(models.Model):
     # Detailed description of complaint
     description = models.TextField()
     image = models.ImageField(upload_to='complaint_images/', null=True, blank=True)
+    after_image = models.ImageField(upload_to='complaint_after_images/', null=True, blank=True)
 
 
     # Current status of complaint
@@ -57,6 +58,15 @@ class Complaint(models.Model):
 
     # If complaint is not solved in time, it becomes escalated
     is_escalated = models.BooleanField(default=False)
+
+    # Portal user who submitted this complaint
+    submitted_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="submitted_complaints",
+    )
 
     # Staff member assigned to solve complaint
     assigned_to = models.ForeignKey (
@@ -86,6 +96,11 @@ class Complaint(models.Model):
 
     # This function runs every time complaint is saved
     def save(self, *args, **kwargs):
+        previous_status = None
+        if self.pk:
+            previous_status = (
+                Complaint.objects.filter(pk=self.pk).values_list("status", flat=True).first()
+            )
 
         # Automatically set priority before saving
         self.set_priority()
@@ -107,6 +122,15 @@ class Complaint(models.Model):
             self.resolution_time = None
 
         super().save(*args, **kwargs)
+
+        # Reset toilet health metrics when complaint is resolved.
+        if (
+            self.status == "Resolved"
+            and previous_status != "Resolved"
+            and self.toilet_id
+        ):
+            resolved_by = self.assigned_to if self.assigned_to_id else None
+            self.toilet.reset_to_optimal_state(resolved_by=resolved_by)
 
     def __str__(self):
         return f"{self.toilet.name} - {self.issue_type}"

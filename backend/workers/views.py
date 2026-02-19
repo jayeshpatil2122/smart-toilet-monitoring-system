@@ -6,11 +6,18 @@ from django.contrib.auth.models import Group, User
 from django.utils import timezone
 from rest_framework.authentication import TokenAuthentication
 from rest_framework.authtoken.models import Token
-from rest_framework.decorators import api_view, authentication_classes, permission_classes
+from rest_framework.decorators import (
+    api_view,
+    authentication_classes,
+    parser_classes,
+    permission_classes,
+)
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from complaints.models import Complaint
+from toilets.models import ToiletAlert
 from .models import WorkerPasswordReset
 from .serializers import (
     PortalForgotPasswordSerializer,
@@ -22,6 +29,7 @@ from .serializers import (
     WorkerLoginSerializer,
     WorkerResetPasswordSerializer,
     WorkerSignupSerializer,
+    WorkerToiletAlertSerializer,
 )
 
 WORKER_GROUP_NAME = "Worker"
@@ -181,9 +189,10 @@ def worker_my_complaints(request):
     return Response(serializer.data)
 
 
-@api_view(["PATCH"])
+@api_view(["PATCH", "POST"])
 @authentication_classes([TokenAuthentication])
 @permission_classes([IsAuthenticated])
+@parser_classes([MultiPartParser, FormParser, JSONParser])
 def worker_update_complaint_status(request, complaint_id):
     if not _is_worker(request.user):
         return Response({"detail": "Worker access required."}, status=403)
@@ -200,9 +209,68 @@ def worker_update_complaint_status(request, complaint_id):
             status=400,
         )
 
+    after_image = request.FILES.get("after_image")
+    if status_value == "Resolved" and not after_image and not complaint.after_image:
+        return Response(
+            {"detail": "Upload AFTER image before marking complaint as resolved."},
+            status=400,
+        )
+
+    if after_image:
+        complaint.after_image = after_image
+
     complaint.status = status_value
     complaint.save()
     serializer = WorkerComplaintSerializer(complaint, context={"request": request})
+    return Response(serializer.data)
+
+
+@api_view(["GET"])
+@authentication_classes([TokenAuthentication])
+@permission_classes([IsAuthenticated])
+def worker_my_alerts(request):
+    if not _is_worker(request.user):
+        return Response({"detail": "Worker access required."}, status=403)
+
+    alerts = (
+        ToiletAlert.objects.filter(assigned_to=request.user)
+        .select_related("toilet", "assigned_to", "resolved_by")
+        .order_by("status", "-created_at")
+    )
+    serializer = WorkerToiletAlertSerializer(alerts, many=True, context={"request": request})
+    return Response(serializer.data)
+
+
+@api_view(["PATCH", "POST"])
+@authentication_classes([TokenAuthentication])
+@permission_classes([IsAuthenticated])
+def worker_update_alert_status(request, alert_id):
+    if not _is_worker(request.user):
+        return Response({"detail": "Worker access required."}, status=403)
+
+    alert = (
+        ToiletAlert.objects.filter(id=alert_id, assigned_to=request.user)
+        .select_related("toilet", "assigned_to", "resolved_by")
+        .first()
+    )
+    if not alert:
+        return Response({"detail": "Alert not found for this worker."}, status=404)
+
+    status_value = request.data.get("status")
+    valid_statuses = {choice[0] for choice in ToiletAlert.STATUS_CHOICES}
+    if status_value not in valid_statuses:
+        return Response(
+            {"detail": f"Invalid status. Allowed values: {', '.join(sorted(valid_statuses))}."},
+            status=400,
+        )
+
+    if status_value == ToiletAlert.STATUS_RESOLVED:
+        alert.toilet.reset_to_optimal_state(resolved_by=request.user)
+        alert.refresh_from_db()
+    else:
+        alert.mark_pending()
+
+    serializer = WorkerToiletAlertSerializer(alert, context={"request": request})
     return Response(serializer.data)
 
 

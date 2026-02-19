@@ -1,23 +1,194 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import axios from "axios";
+import WorkerComplaintMap from "./WorkerComplaintMap";
 import "./WorkerApp.css";
 
 const WORKER_API_BASE = "http://127.0.0.1:8000/api/workers";
-const COMPLAINT_STATUS = ["Pending", "In Progress", "Resolved"];
+const COMPLAINT_API_BASE = "http://127.0.0.1:8000/api/complaints";
+const DASHBOARD_TAB_ASSIGNED = "assigned";
+const DASHBOARD_TAB_ALERTS = "alerts";
+const DASHBOARD_TAB_RANKING = "ranking";
+const SLA_TOTAL_SECONDS = 6 * 60 * 60;
+const STATUS_PENDING = "pending";
+const STATUS_IN_PROGRESS = "in progress";
+const STATUS_RESOLVED = "resolved";
+
+const PRIORITY_ORDER = {
+  High: 0,
+  Medium: 1,
+  Low: 2,
+};
+
+const AI_SUGGESTIONS = {
+  dirty: {
+    title: "Suggested Cleaning Kit",
+    lines: [
+      "Floor disinfectant and toilet cleaner",
+      "Mop, bucket and scrub brush",
+      "Wear gloves and mask",
+      "Clean seat, floor and high-touch points",
+      "Spray deodorizer after deep cleaning",
+    ],
+  },
+  "no water": {
+    title: "AI Suggested Action",
+    lines: [
+      "Check water tank level",
+      "Inspect motor pump",
+      "Check municipal supply",
+      "Inspect valve blockage",
+      "Run flow test after restoring supply",
+    ],
+  },
+  broken: {
+    title: "AI Suggested Repair Steps",
+    lines: [
+      "Inspect damaged fitting or fixture",
+      "Shut off inlet valve before repair",
+      "Replace broken part with spare unit",
+      "Check for leakage after fitting",
+      "Sanitize repaired area before closure",
+    ],
+  },
+  other: {
+    title: "AI Suggested Inspection Steps",
+    lines: [
+      "Review complaint description carefully",
+      "Capture clear before-condition photos",
+      "Perform quick safety and hygiene check",
+      "Escalate to supervisor if parts are required",
+      "Add detailed notes after completion",
+    ],
+  },
+};
+
+const getPriorityClass = (priority) => {
+  const normalized = String(priority || "").toLowerCase();
+  if (normalized === "high") return "high";
+  if (normalized === "medium") return "medium";
+  return "low";
+};
+
+const getSmartSuggestion = (issueType) => {
+  const normalized = String(issueType || "").trim().toLowerCase();
+  return AI_SUGGESTIONS[normalized] || null;
+};
+
+const normalizeStatus = (status) => String(status || "").trim().toLowerCase();
+
+const hasCoordinates = (complaint) =>
+  complaint &&
+  Number.isFinite(Number(complaint.toilet_latitude)) &&
+  Number.isFinite(Number(complaint.toilet_longitude));
+
+const medalLabel = (rank) => {
+  if (rank === 1) return "Gold";
+  if (rank === 2) return "Silver";
+  if (rank === 3) return "Bronze";
+  return `Rank ${rank}`;
+};
+
+function getDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+const parseDurationToSeconds = (value) => {
+  if (!value) return 0;
+  const match = String(value).match(
+    /(?:(\d+)\s+day[s]?,\s*)?(\d{1,2}):(\d{2}):(\d{2})(?:\.\d+)?/
+  );
+  if (!match) return 0;
+
+  const days = Number(match[1] || 0);
+  const hours = Number(match[2] || 0);
+  const minutes = Number(match[3] || 0);
+  const seconds = Number(match[4] || 0);
+  return days * 86400 + hours * 3600 + minutes * 60 + seconds;
+};
+
+const formatAverageHours = (seconds) => {
+  if (!seconds || Number.isNaN(seconds)) return "0.0 hrs";
+  return `${(seconds / 3600).toFixed(1)} hrs`;
+};
+
+const getSlaMeta = (complaint, nowTick) => {
+  if (!complaint || normalizeStatus(complaint.status) === STATUS_RESOLVED) {
+    return {
+      text: "Resolved",
+      tone: "resolved",
+      remainingSeconds: 0,
+    };
+  }
+
+  const createdMs = new Date(complaint.created_at).getTime();
+  if (!Number.isFinite(createdMs)) {
+    return {
+      text: "SLA unavailable",
+      tone: "normal",
+      remainingSeconds: SLA_TOTAL_SECONDS,
+    };
+  }
+
+  const elapsedSeconds = Math.max(0, Math.floor((nowTick - createdMs) / 1000));
+  const remainingSeconds = SLA_TOTAL_SECONDS - elapsedSeconds;
+
+  if (remainingSeconds <= 0) {
+    return {
+      text: "Escalation overdue",
+      tone: "overdue",
+      remainingSeconds,
+    };
+  }
+
+  const hours = Math.floor(remainingSeconds / 3600);
+  const minutes = Math.floor((remainingSeconds % 3600) / 60);
+  return {
+    text: `Time Remaining Before Escalation: ${hours}h ${minutes}m`,
+    tone: remainingSeconds < 3600 ? "critical" : "normal",
+    remainingSeconds,
+  };
+};
 
 function WorkerApp() {
   const [view, setView] = useState("login");
+  const [dashboardTab, setDashboardTab] = useState(DASHBOARD_TAB_ASSIGNED);
   const [token, setToken] = useState(localStorage.getItem("worker_token") || "");
   const [worker, setWorker] = useState(() => {
     const raw = localStorage.getItem("worker_profile");
     return raw ? JSON.parse(raw) : null;
   });
+
   const [complaints, setComplaints] = useState([]);
+  const [alerts, setAlerts] = useState([]);
+  const [ranking, setRanking] = useState([]);
   const [loadingComplaints, setLoadingComplaints] = useState(false);
+  const [loadingAlerts, setLoadingAlerts] = useState(false);
+  const [loadingRanking, setLoadingRanking] = useState(false);
   const [authLoading, setAuthLoading] = useState(false);
+  const [statusLoadingId, setStatusLoadingId] = useState(null);
+  const [alertStatusLoadingId, setAlertStatusLoadingId] = useState(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [resetCodePreview, setResetCodePreview] = useState("");
+  const [activeComplaintId, setActiveComplaintId] = useState(null);
+  const [afterImageFiles, setAfterImageFiles] = useState({});
+  const [aiActionsVisible, setAiActionsVisible] = useState({});
+  const [imagePreview, setImagePreview] = useState(null);
+  const [workerLocation, setWorkerLocation] = useState(null);
+  const [locationError, setLocationError] = useState("");
+  const [nowTick, setNowTick] = useState(Date.now());
 
   const [loginData, setLoginData] = useState({ username: "", password: "" });
   const [signupData, setSignupData] = useState({
@@ -44,29 +215,211 @@ function WorkerApp() {
     setError("");
   };
 
-  const fetchAssignedComplaints = useCallback(async (currentToken) => {
-    const activeToken = currentToken || token;
-    if (!activeToken) return;
-    setLoadingComplaints(true);
-    clearAlerts();
+  const fetchAssignedComplaints = useCallback(
+    async (currentToken) => {
+      const activeToken = currentToken || token;
+      if (!activeToken) return;
+      setLoadingComplaints(true);
+      clearAlerts();
+      try {
+        const response = await axios.get(`${WORKER_API_BASE}/my-complaints/`, {
+          headers: { Authorization: `Token ${activeToken}` },
+        });
+        setComplaints(response.data || []);
+      } catch (err) {
+        setError(err?.response?.data?.detail || "Could not load assigned complaints.");
+      } finally {
+        setLoadingComplaints(false);
+      }
+    },
+    [token]
+  );
+
+  const fetchAssignedAlerts = useCallback(
+    async (currentToken) => {
+      const activeToken = currentToken || token;
+      if (!activeToken) return;
+      setLoadingAlerts(true);
+      try {
+        const response = await axios.get(`${WORKER_API_BASE}/my-alerts/`, {
+          headers: { Authorization: `Token ${activeToken}` },
+        });
+        setAlerts(response.data || []);
+      } catch (err) {
+        setError(err?.response?.data?.detail || "Could not load assigned alerts.");
+      } finally {
+        setLoadingAlerts(false);
+      }
+    },
+    [token]
+  );
+
+  const fetchRanking = useCallback(async () => {
+    setLoadingRanking(true);
     try {
-      const response = await axios.get(`${WORKER_API_BASE}/my-complaints/`, {
-        headers: { Authorization: `Token ${activeToken}` },
-      });
-      setComplaints(response.data);
+      const response = await axios.get(`${COMPLAINT_API_BASE}/staff-performance/`);
+      setRanking(response.data || []);
     } catch (err) {
-      setError(err?.response?.data?.detail || "Could not load assigned complaints.");
+      setError(err?.response?.data?.detail || "Could not load ranking data.");
     } finally {
-      setLoadingComplaints(false);
+      setLoadingRanking(false);
     }
-  }, [token]);
+  }, []);
 
   useEffect(() => {
     if (token) {
       setView("dashboard");
       fetchAssignedComplaints(token);
+      fetchAssignedAlerts(token);
+      fetchRanking();
     }
-  }, [token, fetchAssignedComplaints]);
+  }, [token, fetchAssignedComplaints, fetchAssignedAlerts, fetchRanking]);
+
+  useEffect(() => {
+    if (view === "dashboard" && dashboardTab === DASHBOARD_TAB_RANKING && ranking.length === 0) {
+      fetchRanking();
+    }
+  }, [view, dashboardTab, ranking.length, fetchRanking]);
+
+  useEffect(() => {
+    if (view === "dashboard" && dashboardTab === DASHBOARD_TAB_ALERTS && alerts.length === 0) {
+      fetchAssignedAlerts();
+    }
+  }, [view, dashboardTab, alerts.length, fetchAssignedAlerts]);
+
+  useEffect(() => {
+    if (view !== "dashboard" || !token) return undefined;
+    const intervalId = setInterval(() => {
+      fetchAssignedComplaints();
+      fetchAssignedAlerts();
+      setNowTick(Date.now());
+    }, 30000);
+    return () => clearInterval(intervalId);
+  }, [view, token, fetchAssignedComplaints, fetchAssignedAlerts]);
+
+  useEffect(() => {
+    if (view !== "dashboard") return;
+    if (!navigator.geolocation) {
+      setLocationError("Geolocation is not supported by this browser.");
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setWorkerLocation({
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+        });
+        setLocationError("");
+      },
+      () => {
+        setLocationError("Could not read worker location. Enable location for work-order sorting.");
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 15000,
+        maximumAge: 120000,
+      }
+    );
+  }, [view]);
+
+  useEffect(() => {
+    if (!activeComplaintId) return;
+    const el = document.getElementById(`complaint-${activeComplaintId}`);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [activeComplaintId]);
+
+  const sortedComplaints = useMemo(() => {
+    return [...complaints].sort((a, b) => {
+      const byPriority =
+        (PRIORITY_ORDER[a.priority] ?? 999) - (PRIORITY_ORDER[b.priority] ?? 999);
+      if (byPriority !== 0) return byPriority;
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
+  }, [complaints]);
+
+  const mappableComplaints = useMemo(
+    () => sortedComplaints.filter((item) => hasCoordinates(item)),
+    [sortedComplaints]
+  );
+
+  const complaintsByDistance = useMemo(() => {
+    if (!workerLocation) return [];
+    return mappableComplaints
+      .map((complaint) => ({
+        ...complaint,
+        distance: getDistance(
+          workerLocation.lat,
+          workerLocation.lng,
+          Number(complaint.toilet_latitude),
+          Number(complaint.toilet_longitude)
+        ),
+      }))
+      .sort((a, b) => a.distance - b.distance);
+  }, [mappableComplaints, workerLocation]);
+
+  const sortedAlerts = useMemo(() => {
+    return [...alerts].sort((a, b) => {
+      const aResolved = normalizeStatus(a.status) === STATUS_RESOLVED;
+      const bResolved = normalizeStatus(b.status) === STATUS_RESOLVED;
+      if (aResolved !== bResolved) return aResolved ? 1 : -1;
+      const byPriority =
+        (PRIORITY_ORDER[a.priority] ?? 999) - (PRIORITY_ORDER[b.priority] ?? 999);
+      if (byPriority !== 0) return byPriority;
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
+  }, [alerts]);
+
+  const workerResolvedCount = useMemo(() => {
+    if (!worker?.username) return 0;
+    const current = ranking.find((item) => item.staff_name === worker.username);
+    return current ? current.resolved_complaints : 0;
+  }, [worker, ranking]);
+
+  const rankingTopScore = useMemo(() => {
+    if (ranking.length === 0) return 1;
+    return Math.max(
+      ...ranking.map((entry) => Number(entry.resolved_complaints) || 0),
+      1
+    );
+  }, [ranking]);
+
+  const dashboardStats = useMemo(() => {
+    const pending = complaints.filter(
+      (item) => normalizeStatus(item.status) === STATUS_PENDING
+    ).length;
+    const inProgress = complaints.filter(
+      (item) => normalizeStatus(item.status) === STATUS_IN_PROGRESS
+    ).length;
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const resolvedToday = complaints.filter((item) => {
+      if (normalizeStatus(item.status) !== STATUS_RESOLVED || !item.resolved_at) return false;
+      return new Date(item.resolved_at) >= today;
+    }).length;
+
+    const resolutionDurations = complaints
+      .filter(
+        (item) => normalizeStatus(item.status) === STATUS_RESOLVED && item.resolution_time
+      )
+      .map((item) => parseDurationToSeconds(item.resolution_time))
+      .filter((value) => value > 0);
+
+    const avgResolutionSeconds = resolutionDurations.length
+      ? resolutionDurations.reduce((sum, val) => sum + val, 0) / resolutionDurations.length
+      : 0;
+
+    return {
+      totalAssigned: complaints.length,
+      pending,
+      inProgress,
+      resolvedToday,
+      avgResolutionSeconds,
+    };
+  }, [complaints]);
 
   const handleLogin = async (event) => {
     event.preventDefault();
@@ -148,26 +501,130 @@ function WorkerApp() {
     setToken("");
     setWorker(null);
     setComplaints([]);
+    setAlerts([]);
+    setRanking([]);
+    setAfterImageFiles({});
+    setActiveComplaintId(null);
+    setWorkerLocation(null);
+    setLocationError("");
+    setAlertStatusLoadingId(null);
     setView("login");
+    setDashboardTab(DASHBOARD_TAB_ASSIGNED);
     clearAlerts();
   };
 
-  const updateComplaintStatus = async (complaintId, status) => {
+  const updateComplaintStatus = async (complaintId, status, afterImageFile = null) => {
     clearAlerts();
+    setStatusLoadingId(complaintId);
     try {
-      const response = await axios.patch(
+      const formData = new FormData();
+      formData.append("status", status);
+      if (afterImageFile) {
+        formData.append("after_image", afterImageFile);
+      }
+
+      const response = await axios.post(
         `${WORKER_API_BASE}/my-complaints/${complaintId}/status/`,
-        { status },
+        formData,
         authHeaders
       );
 
       setComplaints((prev) =>
         prev.map((item) => (item.id === complaintId ? response.data : item))
       );
-      setMessage(`Complaint #${complaintId} marked as ${status}.`);
+      setAfterImageFiles((prev) => {
+        const next = { ...prev };
+        delete next[complaintId];
+        return next;
+      });
+      setMessage(`Complaint updated to ${status}.`);
+      setNowTick(Date.now());
+      if (status === "Resolved") {
+        fetchRanking();
+      }
     } catch (err) {
       setError(err?.response?.data?.detail || "Failed to update complaint status.");
+    } finally {
+      setStatusLoadingId(null);
     }
+  };
+
+  const handleStartWork = (complaintId) => {
+    updateComplaintStatus(complaintId, "In Progress");
+  };
+
+  const updateAlertStatus = async (alertId, status) => {
+    clearAlerts();
+    setAlertStatusLoadingId(alertId);
+    try {
+      const response = await axios.post(
+        `${WORKER_API_BASE}/my-alerts/${alertId}/status/`,
+        { status },
+        authHeaders
+      );
+      setAlerts((prev) =>
+        prev.map((item) => (item.id === alertId ? response.data : item))
+      );
+      setMessage(`Alert updated to ${status}.`);
+      fetchAssignedComplaints();
+      setNowTick(Date.now());
+    } catch (err) {
+      setError(err?.response?.data?.detail || "Failed to update alert status.");
+    } finally {
+      setAlertStatusLoadingId(null);
+    }
+  };
+
+  const handleResolved = (complaint) => {
+    const selectedAfterImage = afterImageFiles[complaint.id];
+    if (!selectedAfterImage && !complaint.after_image) {
+      setError("Upload AFTER image before marking this complaint as resolved.");
+      return;
+    }
+    updateComplaintStatus(complaint.id, "Resolved", selectedAfterImage || null);
+  };
+
+  const handleAfterImageSelect = (complaintId, file) => {
+    setAfterImageFiles((prev) => ({
+      ...prev,
+      [complaintId]: file || null,
+    }));
+  };
+
+  const handleSubmitAfterPhoto = (complaint) => {
+    const selectedAfterImage = afterImageFiles[complaint.id];
+    if (!selectedAfterImage) {
+      setError("Select an AFTER image first.");
+      return;
+    }
+    updateComplaintStatus(complaint.id, complaint.status, selectedAfterImage);
+  };
+
+  const toggleAiActions = (complaintId) => {
+    setAiActionsVisible((prev) => ({
+      ...prev,
+      [complaintId]: !prev[complaintId],
+    }));
+  };
+
+  const openImagePreview = (src, title) => {
+    if (!src) return;
+    setImagePreview({ src, title });
+  };
+
+  const closeImagePreview = () => {
+    setImagePreview(null);
+  };
+
+  const openNavigation = (complaint) => {
+    if (!hasCoordinates(complaint)) {
+      setError("This item does not have valid toilet coordinates.");
+      return;
+    }
+    window.open(
+      `https://www.google.com/maps/dir/?api=1&destination=${complaint.toilet_latitude},${complaint.toilet_longitude}`,
+      "_blank"
+    );
   };
 
   const renderAuthNavigation = () => (
@@ -204,7 +661,9 @@ function WorkerApp() {
           <p>Assigned complaints and updates</p>
           {view === "dashboard" && worker && (
             <div className="worker-profile">
-              <span>Logged in as <b>{worker.username}</b></span>
+              <span>
+                Logged in as <b>{worker.username}</b>
+              </span>
               <button type="button" className="worker-logout-btn" onClick={handleLogout}>
                 Logout
               </button>
@@ -339,49 +798,508 @@ function WorkerApp() {
         {view === "dashboard" && (
           <div className="worker-dashboard">
             <div className="worker-dashboard-head">
-              <h2>My Assigned Complaints</h2>
+              <div>
+                <h2>My Dashboard</h2>
+                <p>Fast complaint handling with map routing and SLA tracking.</p>
+              </div>
+              <div className="worker-dashboard-head-actions">
+                <button
+                  type="button"
+                  onClick={() => {
+                    fetchAssignedComplaints();
+                    fetchAssignedAlerts();
+                    fetchRanking();
+                  }}
+                  className="worker-refresh-btn"
+                >
+                  Refresh
+                </button>
+              </div>
+            </div>
+
+            <div className="worker-live-dashboard">
+              <article className="worker-live-card pending">
+                <h3>Pending</h3>
+                <p>{dashboardStats.pending}</p>
+              </article>
+              <article className="worker-live-card in-progress">
+                <h3>In Progress</h3>
+                <p>{dashboardStats.inProgress}</p>
+              </article>
+              <article className="worker-live-card resolved">
+                <h3>Resolved Today</h3>
+                <p>{dashboardStats.resolvedToday}</p>
+              </article>
+              <article className="worker-live-card total">
+                <h3>Total Assigned</h3>
+                <p>{dashboardStats.totalAssigned}</p>
+              </article>
+              <article className="worker-live-card avg">
+                <h3>Avg Resolution Time</h3>
+                <p>{formatAverageHours(dashboardStats.avgResolutionSeconds)}</p>
+              </article>
+              <article className="worker-live-card rank">
+                <h3>Resolved by You</h3>
+                <p>{workerResolvedCount}</p>
+              </article>
+            </div>
+
+            <div className="worker-dashboard-tabs">
               <button
                 type="button"
-                onClick={() => fetchAssignedComplaints()}
-                className="worker-refresh-btn"
+                className={dashboardTab === DASHBOARD_TAB_ASSIGNED ? "active" : ""}
+                onClick={() => setDashboardTab(DASHBOARD_TAB_ASSIGNED)}
               >
-                Refresh
+                Assigned Operations
+              </button>
+              <button
+                type="button"
+                className={dashboardTab === DASHBOARD_TAB_ALERTS ? "active" : ""}
+                onClick={() => setDashboardTab(DASHBOARD_TAB_ALERTS)}
+              >
+                Toilet Alerts
+              </button>
+              <button
+                type="button"
+                className={dashboardTab === DASHBOARD_TAB_RANKING ? "active" : ""}
+                onClick={() => setDashboardTab(DASHBOARD_TAB_RANKING)}
+              >
+                Worker Ranking
               </button>
             </div>
 
-            {loadingComplaints && <p className="worker-empty">Loading complaints...</p>}
-            {!loadingComplaints && complaints.length === 0 && (
-              <p className="worker-empty">No complaints assigned yet.</p>
+            {dashboardTab === DASHBOARD_TAB_ASSIGNED && (
+              <>
+                <section className="worker-map-panel">
+                  <div className="worker-section-head">
+                    <h3>Assigned Complaints Map</h3>
+                    <p>Marker Priority: Red High, Orange Medium, Green Low.</p>
+                  </div>
+                  <WorkerComplaintMap
+                    complaints={mappableComplaints}
+                    activeComplaintId={activeComplaintId}
+                    onSelectComplaint={setActiveComplaintId}
+                  />
+                </section>
+
+                <section className="worker-work-order">
+                  <div className="worker-section-head">
+                    <h3>Suggested Work Order</h3>
+                    <p>
+                      {workerLocation
+                        ? `Location locked at ${workerLocation.lat.toFixed(4)}, ${workerLocation.lng.toFixed(4)}`
+                        : "Waiting for worker location..."}
+                    </p>
+                  </div>
+                  {locationError && <p className="worker-empty">{locationError}</p>}
+                  {!locationError && workerLocation && complaintsByDistance.length === 0 && (
+                    <p className="worker-empty">No mappable assigned complaints yet.</p>
+                  )}
+                  {!locationError && workerLocation && complaintsByDistance.length > 0 && (
+                    <div className="worker-work-order-list">
+                      {complaintsByDistance.map((complaint, index) => (
+                        <div key={`work-order-${complaint.id}`} className="worker-work-order-item">
+                          <span className="worker-work-order-index">{index + 1}</span>
+                          <span className="worker-work-order-main">
+                            <b>{complaint.toilet_name}</b>
+                            <small>
+                              {complaint.issue_type} - {complaint.distance.toFixed(2)} km away
+                            </small>
+                          </span>
+                          <span className={`worker-priority ${getPriorityClass(complaint.priority)}`}>
+                            {complaint.priority}
+                          </span>
+                          <span className="worker-work-order-actions">
+                            <button
+                              type="button"
+                              className="worker-work-view-btn"
+                              onClick={() => setActiveComplaintId(complaint.id)}
+                            >
+                              View
+                            </button>
+                            <button
+                              type="button"
+                              className="worker-work-nav-btn"
+                              onClick={() => openNavigation(complaint)}
+                            >
+                              Navigate
+                            </button>
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </section>
+
+                {loadingComplaints && <p className="worker-empty">Loading complaints...</p>}
+                {!loadingComplaints && complaints.length === 0 && (
+                  <p className="worker-empty">No complaints assigned yet.</p>
+                )}
+
+                <div className="worker-complaint-grid">
+                  {sortedComplaints.map((complaint) => {
+                    const suggestion = getSmartSuggestion(complaint.issue_type);
+                    const beforeImage = complaint.before_image || complaint.image;
+                    const selectedAfterFile = afterImageFiles[complaint.id];
+                    const normalizedStatus = normalizeStatus(complaint.status);
+                    const resolved = normalizedStatus === STATUS_RESOLVED;
+                    const inProgress = normalizedStatus === STATUS_IN_PROGRESS;
+                    const canStartWork = !resolved && statusLoadingId !== complaint.id;
+                    const hasAfterImage = Boolean(complaint.after_image);
+                    const canResolve = inProgress && hasAfterImage && statusLoadingId !== complaint.id;
+                    const sla = getSlaMeta(complaint, nowTick);
+                    const showAiActions = Boolean(aiActionsVisible[complaint.id]);
+
+                    return (
+                      <article
+                        id={`complaint-${complaint.id}`}
+                        key={complaint.id}
+                        className={`worker-complaint-card priority-${getPriorityClass(
+                          complaint.priority
+                        )} ${activeComplaintId === complaint.id ? "active" : ""}`}
+                      >
+                        <div className="worker-complaint-top">
+                          <h3>{complaint.toilet_name}</h3>
+                          <div className="worker-chip-row">
+                            <span className={`worker-priority ${getPriorityClass(complaint.priority)}`}>
+                              {complaint.priority}
+                            </span>
+                            <span
+                              className={`worker-status ${complaint.status
+                                .toLowerCase()
+                                .replace(" ", "-")}`}
+                            >
+                              {complaint.status}
+                            </span>
+                          </div>
+                        </div>
+
+                        <p>
+                          <b>Issue:</b> {complaint.issue_type}
+                        </p>
+                        <p>
+                          <b>Location:</b> {complaint.toilet_location}
+                        </p>
+                        <p>
+                          <b>Description:</b> {complaint.description}
+                        </p>
+
+                        <div className={`worker-sla ${sla.tone}`}>
+                          <span>{sla.text}</span>
+                        </div>
+
+                        {suggestion && (
+                          <div className="worker-ai-suggestion">
+                            <h4>Suggested AI Action</h4>
+                            <p>{suggestion.title}</p>
+                            <button
+                              type="button"
+                              className="worker-ai-toggle-btn"
+                              onClick={() => toggleAiActions(complaint.id)}
+                            >
+                              {showAiActions ? "Hide AI Actions" : "Show AI Actions"}
+                            </button>
+                            {showAiActions && (
+                              <ul>
+                                {suggestion.lines.map((line) => (
+                                  <li key={`${complaint.id}-${line}`}>{line}</li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        )}
+
+                        <div className="worker-image-compare">
+                          <div className="worker-image-block">
+                            <h4>Before (Citizen)</h4>
+                            {beforeImage ? (
+                              <>
+                                <img src={beforeImage} alt={`Before complaint ${complaint.id}`} />
+                                <button
+                                  type="button"
+                                  className="worker-full-image-btn"
+                                  onClick={() =>
+                                    openImagePreview(beforeImage, `Before Image - ${complaint.toilet_name}`)
+                                  }
+                                >
+                                  View Full Image
+                                </button>
+                              </>
+                            ) : (
+                              <div className="worker-image-empty">No before image uploaded.</div>
+                            )}
+                          </div>
+                          <div className="worker-image-block">
+                            <h4>After (Worker)</h4>
+                            {complaint.after_image ? (
+                              <>
+                                <img src={complaint.after_image} alt={`After complaint ${complaint.id}`} />
+                                <button
+                                  type="button"
+                                  className="worker-full-image-btn"
+                                  onClick={() =>
+                                    openImagePreview(
+                                      complaint.after_image,
+                                      `After Image - ${complaint.toilet_name}`
+                                    )
+                                  }
+                                >
+                                  View Full Image
+                                </button>
+                              </>
+                            ) : (
+                              <div className="worker-image-empty">
+                                Upload after-cleaning image to enable resolve.
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="worker-upload-box">
+                          <label htmlFor={`after-image-${complaint.id}`}>Upload AFTER Image</label>
+                          <input
+                            id={`after-image-${complaint.id}`}
+                            type="file"
+                            accept="image/*"
+                            onChange={(event) =>
+                              handleAfterImageSelect(complaint.id, event.target.files?.[0] || null)
+                            }
+                            disabled={resolved || statusLoadingId === complaint.id}
+                          />
+                          {selectedAfterFile && <small>Selected: {selectedAfterFile.name}</small>}
+                          <button
+                            type="button"
+                            className="worker-submit-photo-btn"
+                            disabled={
+                              resolved ||
+                              statusLoadingId === complaint.id ||
+                              !selectedAfterFile
+                            }
+                            onClick={() => handleSubmitAfterPhoto(complaint)}
+                          >
+                            {statusLoadingId === complaint.id ? "Submitting..." : "Submit After Photo"}
+                          </button>
+                        </div>
+
+                        <div className="worker-status-actions">
+                          <button
+                            type="button"
+                            className="worker-start-btn"
+                            disabled={!canStartWork}
+                            onClick={() => handleStartWork(complaint.id)}
+                          >
+                            {statusLoadingId === complaint.id
+                              ? "Updating..."
+                              : "Start Work"}
+                          </button>
+                          <button
+                            type="button"
+                            className="worker-resolve-btn"
+                            disabled={resolved || !canResolve}
+                            onClick={() => handleResolved(complaint)}
+                          >
+                            {resolved
+                              ? "Resolved"
+                              : statusLoadingId === complaint.id
+                                ? "Updating..."
+                                : "Mark Resolved"}
+                          </button>
+                          <button
+                            type="button"
+                            className="worker-navigate-btn"
+                            disabled={!hasCoordinates(complaint)}
+                            onClick={() => openNavigation(complaint)}
+                          >
+                            Navigate
+                          </button>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              </>
             )}
 
-            <div className="worker-complaint-grid">
-              {complaints.map((complaint) => (
-                <div key={complaint.id} className="worker-complaint-card">
-                  <div className="worker-complaint-top">
-                    <h3>#{complaint.id} - {complaint.toilet_name}</h3>
-                    <span className={`worker-status ${complaint.status.toLowerCase().replace(" ", "-")}`}>
-                      {complaint.status}
-                    </span>
-                  </div>
-                  <p><b>Location:</b> {complaint.toilet_location}</p>
-                  <p><b>Issue:</b> {complaint.issue_type}</p>
-                  <p><b>Priority:</b> {complaint.priority}</p>
-                  <p><b>Description:</b> {complaint.description}</p>
-                  <p><b>Created:</b> {new Date(complaint.created_at).toLocaleString()}</p>
-                  <div className="worker-status-actions">
-                    {COMPLAINT_STATUS.map((status) => (
-                      <button
-                        type="button"
-                        key={status}
-                        disabled={complaint.status === status}
-                        onClick={() => updateComplaintStatus(complaint.id, status)}
-                      >
-                        {status}
-                      </button>
-                    ))}
-                  </div>
+            {dashboardTab === DASHBOARD_TAB_ALERTS && (
+              <section className="worker-alerts-panel">
+                <div className="worker-section-head">
+                  <h3>Assigned Toilet Alerts</h3>
+                  <p>Low water or low cleanliness alerts assigned to you.</p>
                 </div>
-              ))}
+
+                {loadingAlerts && <p className="worker-empty">Loading alerts...</p>}
+                {!loadingAlerts && alerts.length === 0 && (
+                  <p className="worker-empty">No alerts assigned right now.</p>
+                )}
+
+                {!loadingAlerts && alerts.length > 0 && (
+                  <div className="worker-alert-grid">
+                    {sortedAlerts.map((alert) => {
+                      const isResolved = normalizeStatus(alert.status) === STATUS_RESOLVED;
+                      const canResolveAlert = !isResolved && alertStatusLoadingId !== alert.id;
+
+                      return (
+                        <article
+                          key={`toilet-alert-${alert.id}`}
+                          className={`worker-alert-card priority-${getPriorityClass(alert.priority)} ${
+                            isResolved ? "resolved" : ""
+                          }`}
+                        >
+                          <div className="worker-alert-top">
+                            <h3>{alert.toilet_name}</h3>
+                            <div className="worker-chip-row">
+                              <span className={`worker-priority ${getPriorityClass(alert.priority)}`}>
+                                {alert.priority}
+                              </span>
+                              <span
+                                className={`worker-status ${String(alert.status || "")
+                                  .toLowerCase()
+                                  .replace(" ", "-")}`}
+                              >
+                                {alert.status}
+                              </span>
+                            </div>
+                          </div>
+
+                          <p>
+                            <b>Location:</b> {alert.toilet_location}
+                          </p>
+                          <p>
+                            <b>Issue Alert:</b> {alert.alert_type}
+                          </p>
+                          <p>
+                            <b>Alert Details:</b> {alert.message}
+                          </p>
+                          <p>
+                            <b>Created:</b> {new Date(alert.created_at).toLocaleString()}
+                          </p>
+                          {alert.assigned_to_username && (
+                            <p>
+                              <b>Assigned Worker:</b> {alert.assigned_to_username}
+                            </p>
+                          )}
+
+                          <div className="worker-status-actions">
+                            <button
+                              type="button"
+                              className="worker-navigate-btn"
+                              disabled={!hasCoordinates(alert)}
+                              onClick={() => openNavigation(alert)}
+                            >
+                              Navigate
+                            </button>
+                            <button
+                              type="button"
+                              className="worker-resolve-btn"
+                              disabled={!canResolveAlert}
+                              onClick={() => updateAlertStatus(alert.id, "Resolved")}
+                            >
+                              {isResolved
+                                ? "Resolved"
+                                : alertStatusLoadingId === alert.id
+                                  ? "Updating..."
+                                  : "Resolve Alert"}
+                            </button>
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
+              </section>
+            )}
+
+            {dashboardTab === DASHBOARD_TAB_RANKING && (
+              <section className="worker-ranking-panel">
+                <div className="worker-section-head">
+                  <h3>Worker Ranking Leaderboard</h3>
+                  <button type="button" className="worker-refresh-btn" onClick={fetchRanking}>
+                    Refresh Ranking
+                  </button>
+                </div>
+
+                {loadingRanking && <p className="worker-empty">Loading ranking...</p>}
+                {!loadingRanking && ranking.length === 0 && (
+                  <p className="worker-empty">No ranking data available yet.</p>
+                )}
+
+                {!loadingRanking && ranking.length > 0 && (
+                  <>
+                    <div className="worker-ranking-podium">
+                      {ranking.slice(0, 3).map((entry, index) => {
+                        const score = Number(entry.resolved_complaints) || 0;
+                        const progressWidth = Math.max(
+                          10,
+                          Math.round((score / rankingTopScore) * 100)
+                        );
+
+                        return (
+                          <div
+                            key={`${entry.staff_name}-podium`}
+                            className={`worker-podium-card rank-${index + 1} ${
+                              entry.staff_name === worker?.username ? "mine" : ""
+                            }`}
+                          >
+                            <span className="worker-podium-rank-tag">#{index + 1}</span>
+                            <div className="worker-podium-medal">{medalLabel(index + 1)}</div>
+                            <h4>{entry.staff_name}</h4>
+                            <p>{score} resolved</p>
+                            <div className="worker-podium-meter">
+                              <span style={{ width: `${progressWidth}%` }} />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <div className="worker-ranking-list">
+                      {ranking.map((entry, index) => {
+                        const score = Number(entry.resolved_complaints) || 0;
+                        const progressWidth = Math.max(
+                          8,
+                          Math.round((score / rankingTopScore) * 100)
+                        );
+                        const gapFromTop = Math.max(0, rankingTopScore - score);
+
+                        return (
+                          <div
+                            key={`${entry.staff_name}-${index}`}
+                            className={`worker-ranking-row ${
+                              entry.staff_name === worker?.username ? "mine" : ""
+                            }`}
+                          >
+                            <span className="worker-ranking-position">#{index + 1}</span>
+                            <span className="worker-ranking-name-wrap">
+                              <span className="worker-ranking-name">{entry.staff_name}</span>
+                              <span className="worker-ranking-tag">
+                                {index === 0 ? "Top Performer" : `${gapFromTop} behind top`}
+                              </span>
+                            </span>
+                            <span className="worker-ranking-score">{score} resolved</span>
+                            <div className="worker-ranking-progress">
+                              <span style={{ width: `${progressWidth}%` }} />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+              </section>
+            )}
+          </div>
+        )}
+
+        {imagePreview && (
+          <div className="worker-image-modal" onClick={closeImagePreview}>
+            <div className="worker-image-modal-card" onClick={(event) => event.stopPropagation()}>
+              <div className="worker-image-modal-head">
+                <h3>{imagePreview.title}</h3>
+                <button type="button" onClick={closeImagePreview}>
+                  Close
+                </button>
+              </div>
+              <img src={imagePreview.src} alt={imagePreview.title} />
             </div>
           </div>
         )}
