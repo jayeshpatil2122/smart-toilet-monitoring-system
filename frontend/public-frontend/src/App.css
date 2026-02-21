@@ -1903,27 +1903,6 @@ body::before {
   text-transform: uppercase;
 }
 
-.portal-auth-sim-btn {
-  margin-top: 12px;
-  height: 40px;
-  border: 1px solid rgba(179, 224, 255, 0.3);
-  border-radius: 12px;
-  background: linear-gradient(120deg, rgba(31, 122, 255, 0.78), rgba(70, 231, 255, 0.66));
-  color: #ffffff;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  padding: 0 14px;
-  cursor: pointer;
-  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
-}
-
-.portal-auth-sim-btn:hover {
-  transform: translateY(-1px);
-  border-color: rgba(129, 217, 255, 0.74);
-  box-shadow: 0 10px 20px rgba(7, 35, 70, 0.42), 0 0 16px rgba(70, 231, 255, 0.3);
-}
-
 .portal-auth-msg {
   position: relative;
   z-index: 1;
@@ -2038,6 +2017,43 @@ body::before {
   opacity: 0.72;
   cursor: not-allowed;
   box-shadow: none;
+}
+
+.portal-google-auth {
+  position: relative;
+  z-index: 1;
+  margin-top: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.portal-auth-divider {
+  margin: 0;
+  width: 100%;
+  text-align: center;
+  color: #9ec0dc;
+  font-size: 0.78rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.portal-auth-divider span {
+  display: inline-block;
+  padding: 0 8px;
+}
+
+.portal-google-button-host {
+  min-height: 42px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.portal-google-hint {
+  margin: 0;
+  text-align: center;
+  color: #b9cfe3;
+  font-size: 0.82rem;
 }
 
 .portal-forgot-wrap {

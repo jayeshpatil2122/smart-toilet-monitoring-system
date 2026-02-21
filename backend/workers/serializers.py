@@ -125,6 +125,10 @@ class PortalLoginSerializer(WorkerLoginSerializer):
     pass
 
 
+class PortalGoogleLoginSerializer(serializers.Serializer):
+    id_token = serializers.CharField()
+
+
 class PortalForgotPasswordSerializer(WorkerForgotPasswordSerializer):
     pass
 

@@ -5,6 +5,7 @@ from . import views
 urlpatterns = [
     path("portal/signup/", views.portal_signup),
     path("portal/login/", views.portal_login),
+    path("portal/google-login/", views.portal_google_login),
     path("portal/forgot-password/", views.portal_forgot_password),
     path("portal/reset-password/", views.portal_reset_password),
     path("signup/", views.worker_signup),

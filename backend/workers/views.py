@@ -1,6 +1,11 @@
+import json
 import random
 from datetime import timedelta
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import urlopen
 
+from django.conf import settings
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import Group, User
 from django.utils import timezone
@@ -21,6 +26,7 @@ from toilets.models import ToiletAlert
 from .models import WorkerPasswordReset
 from .serializers import (
     PortalForgotPasswordSerializer,
+    PortalGoogleLoginSerializer,
     PortalLoginSerializer,
     PortalResetPasswordSerializer,
     PortalSignupSerializer,
@@ -50,6 +56,54 @@ def _is_portal_user(user):
 
 def _portal_user_queryset():
     return User.objects.filter(groups__name=PORTAL_GROUP_NAME).distinct()
+
+
+def _build_google_username(email):
+    seed = (email.split("@", 1)[0] if email else "").lower()
+    seed = "".join(ch for ch in seed if ch.isalnum() or ch in {"_", "."})
+    base_username = (seed or "portaluser")[:150]
+
+    candidate = base_username
+    counter = 1
+    while User.objects.filter(username=candidate).exists():
+        suffix = f"_{counter}"
+        candidate = f"{base_username[: 150 - len(suffix)]}{suffix}"
+        counter += 1
+    return candidate
+
+
+def _verify_google_id_token(id_token):
+    if not settings.GOOGLE_OAUTH_CLIENT_ID:
+        return None, "Google login is not configured."
+
+    token_info_url = (
+        "https://oauth2.googleapis.com/tokeninfo?"
+        f"{urlencode({'id_token': id_token})}"
+    )
+    try:
+        with urlopen(token_info_url, timeout=10) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except HTTPError:
+        return None, "Invalid Google token."
+    except (URLError, TimeoutError, ValueError):
+        return None, "Unable to verify Google token right now."
+
+    if payload.get("aud") != settings.GOOGLE_OAUTH_CLIENT_ID:
+        return None, "Google token audience mismatch."
+
+    issuer = payload.get("iss")
+    if issuer not in {"accounts.google.com", "https://accounts.google.com"}:
+        return None, "Invalid Google token issuer."
+
+    if payload.get("email_verified") not in {"true", True}:
+        return None, "Google account email is not verified."
+
+    email = str(payload.get("email", "")).strip().lower()
+    if not email:
+        return None, "Google account email is missing."
+
+    payload["email"] = email
+    return payload, None
 
 
 @api_view(["POST"])
@@ -315,6 +369,57 @@ def portal_login(request):
 
     if not _is_portal_user(user):
         return Response({"detail": "This account is not registered for the user portal."}, status=403)
+
+    token, _ = Token.objects.get_or_create(user=user)
+    return Response(
+        {
+            "token": token.key,
+            "user": {
+                "id": user.id,
+                "username": user.username,
+                "name": f"{user.first_name} {user.last_name}".strip() or user.username,
+                "email": user.email,
+            },
+        }
+    )
+
+
+@api_view(["POST"])
+def portal_google_login(request):
+    serializer = PortalGoogleLoginSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+
+    payload, error_message = _verify_google_id_token(serializer.validated_data["id_token"])
+    if error_message:
+        return Response({"detail": error_message}, status=401)
+
+    email = payload["email"]
+    first_name = str(payload.get("given_name", "")).strip()
+    last_name = str(payload.get("family_name", "")).strip()
+
+    user = User.objects.filter(email__iexact=email).first()
+    if not user:
+        user = User(
+            username=_build_google_username(email),
+            email=email,
+            first_name=first_name,
+            last_name=last_name,
+        )
+        user.set_unusable_password()
+        user.save()
+    else:
+        updates = []
+        if first_name and not user.first_name:
+            user.first_name = first_name
+            updates.append("first_name")
+        if last_name and not user.last_name:
+            user.last_name = last_name
+            updates.append("last_name")
+        if updates:
+            user.save(update_fields=updates)
+
+    group, _ = Group.objects.get_or_create(name=PORTAL_GROUP_NAME)
+    user.groups.add(group)
 
     token, _ = Token.objects.get_or_create(user=user)
     return Response(

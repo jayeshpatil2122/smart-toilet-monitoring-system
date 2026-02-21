@@ -14,6 +14,10 @@ const TOILETS_API_BASE = `${API_BASE}/api/toilets`;
 const SPLASH_DURATION_MS = 3500;
 const LOGIN_BG_VIDEO_PATH =
   process.env.REACT_APP_LOGIN_BG_VIDEO_URL?.trim() || "https://cdn.pixabay.com/video/2021/10/05/90875-629483572_large.mp4";
+const GOOGLE_CLIENT_ID = (
+  process.env.REACT_APP_GOOGLE_CLIENT_ID?.trim() ||
+  "985373381636-pk1i0l5p36u3a11vq1figa30q2mk0a56.apps.googleusercontent.com"
+).replace(/\s+/g, "");
 const PROFILE_STORAGE_PREFIX = "portal_profile_meta_";
 const DEFAULT_PROFILE_META = {
   phone: "",
@@ -191,6 +195,7 @@ function App() {
   const [authLoading, setAuthLoading] = useState(false);
   const [authMessage, setAuthMessage] = useState("");
   const [authError, setAuthError] = useState("");
+  const [googleSignInReady, setGoogleSignInReady] = useState(false);
   const [resetCodePreview, setResetCodePreview] = useState("");
   const [loginData, setLoginData] = useState({ username: "", password: "" });
   const [signupData, setSignupData] = useState({
@@ -333,6 +338,15 @@ function App() {
     setAuthError("");
   };
 
+  const completePortalLogin = useCallback((token, user) => {
+    localStorage.setItem("portal_token", token);
+    localStorage.setItem("portal_profile", JSON.stringify(user));
+    setPortalToken(token);
+    setPortalProfile(user);
+    setActiveSection("map");
+    setIsDrawerOpen(false);
+  }, []);
+
   const handlePortalLogin = async (event) => {
     event.preventDefault();
     setAuthLoading(true);
@@ -340,12 +354,7 @@ function App() {
     try {
       const response = await axios.post(`${PORTAL_API_BASE}/login/`, loginData);
       const { token, user } = response.data;
-      localStorage.setItem("portal_token", token);
-      localStorage.setItem("portal_profile", JSON.stringify(user));
-      setPortalToken(token);
-      setPortalProfile(user);
-      setActiveSection("map");
-      setIsDrawerOpen(false);
+      completePortalLogin(token, user);
       setLoginData({ username: "", password: "" });
     } catch (error) {
       setAuthError(error?.response?.data?.detail || "Login failed.");
@@ -353,6 +362,32 @@ function App() {
       setAuthLoading(false);
     }
   };
+
+  const handleGoogleCredentialResponse = useCallback(
+    async (credentialResponse) => {
+      const idToken = credentialResponse?.credential;
+      if (!idToken) {
+        setAuthError("Google login failed.");
+        return;
+      }
+
+      setAuthLoading(true);
+      setAuthMessage("");
+      setAuthError("");
+      try {
+        const response = await axios.post(`${PORTAL_API_BASE}/google-login/`, {
+          id_token: idToken,
+        });
+        const { token, user } = response.data;
+        completePortalLogin(token, user);
+      } catch (error) {
+        setAuthError(error?.response?.data?.detail || "Google login failed.");
+      } finally {
+        setAuthLoading(false);
+      }
+    },
+    [completePortalLogin]
+  );
 
   const handlePortalSignup = async (event) => {
     event.preventDefault();
@@ -406,6 +441,80 @@ function App() {
       setAuthLoading(false);
     }
   };
+
+  const showGoogleAuthOption = authView === "login" || authView === "signup";
+
+  useEffect(() => {
+    if (!showGoogleAuthOption || !GOOGLE_CLIENT_ID) {
+      setGoogleSignInReady(false);
+      return undefined;
+    }
+
+    let isDisposed = false;
+    const container = document.getElementById("google-signin-button");
+    if (!container) return undefined;
+
+    const renderGoogleButton = () => {
+      if (isDisposed || !window.google?.accounts?.id) return;
+
+      window.google.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: handleGoogleCredentialResponse,
+        auto_select: false,
+        cancel_on_tap_outside: true,
+      });
+
+      container.innerHTML = "";
+      const buttonWidth = Math.min(Math.max(container.offsetWidth || 240, 200), 320);
+      window.google.accounts.id.renderButton(container, {
+        theme: "outline",
+        size: "large",
+        text: "continue_with",
+        shape: "pill",
+        width: buttonWidth,
+      });
+      setGoogleSignInReady(true);
+    };
+
+    const onScriptError = () => {
+      if (isDisposed) return;
+      setGoogleSignInReady(false);
+      setAuthError((current) => current || "Unable to load Google Sign-In.");
+    };
+
+    if (window.google?.accounts?.id) {
+      renderGoogleButton();
+      return () => {
+        isDisposed = true;
+      };
+    }
+
+    const existingScript = document.querySelector('script[data-google-gsi="true"]');
+    if (existingScript) {
+      existingScript.addEventListener("load", renderGoogleButton);
+      existingScript.addEventListener("error", onScriptError);
+      return () => {
+        isDisposed = true;
+        existingScript.removeEventListener("load", renderGoogleButton);
+        existingScript.removeEventListener("error", onScriptError);
+      };
+    }
+
+    const script = document.createElement("script");
+    script.src = "https://accounts.google.com/gsi/client";
+    script.async = true;
+    script.defer = true;
+    script.dataset.googleGsi = "true";
+    script.addEventListener("load", renderGoogleButton);
+    script.addEventListener("error", onScriptError);
+    document.head.appendChild(script);
+
+    return () => {
+      isDisposed = true;
+      script.removeEventListener("load", renderGoogleButton);
+      script.removeEventListener("error", onScriptError);
+    };
+  }, [showGoogleAuthOption, handleGoogleCredentialResponse]);
 
   const handlePortalLogout = () => {
     localStorage.removeItem("portal_token");
@@ -1020,13 +1129,6 @@ function App() {
               <img src={appLogo} alt="Portal Logo" className="portal-auth-logo" />
               <h1>User Access Portal</h1>
               <p>Secure entry required</p>
-              <button
-                type="button"
-                className="portal-auth-sim-btn"
-                onClick={() => window.location.assign("/simulation")}
-              >
-                Open Simulation Panel
-              </button>
             </div>
 
             {authMessage && <div className="portal-auth-msg ok">{authMessage}</div>}
@@ -1057,65 +1159,101 @@ function App() {
             </div>
 
             {authView === "login" && (
-              <form className="portal-auth-form" onSubmit={handlePortalLogin}>
-                <input
-                  type="text"
-                  placeholder="Username"
-                  value={loginData.username}
-                  onChange={(event) => setLoginData({ ...loginData, username: event.target.value })}
-                  required
-                />
-                <input
-                  type="password"
-                  placeholder="Password"
-                  value={loginData.password}
-                  onChange={(event) => setLoginData({ ...loginData, password: event.target.value })}
-                  required
-                />
-                <button type="submit" disabled={authLoading}>
-                  {authLoading ? "Verifying..." : "Enter Portal"}
-                </button>
-              </form>
+              <>
+                <form className="portal-auth-form" onSubmit={handlePortalLogin}>
+                  <input
+                    type="text"
+                    placeholder="Username"
+                    value={loginData.username}
+                    onChange={(event) => setLoginData({ ...loginData, username: event.target.value })}
+                    required
+                  />
+                  <input
+                    type="password"
+                    placeholder="Password"
+                    value={loginData.password}
+                    onChange={(event) => setLoginData({ ...loginData, password: event.target.value })}
+                    required
+                  />
+                  <button type="submit" disabled={authLoading}>
+                    {authLoading ? "Verifying..." : "Enter Portal"}
+                  </button>
+                </form>
+
+                <div className="portal-google-auth">
+                  <p className="portal-auth-divider">
+                    <span>or continue with</span>
+                  </p>
+                  {GOOGLE_CLIENT_ID ? (
+                    <>
+                      <div id="google-signin-button" className="portal-google-button-host"></div>
+                      {!googleSignInReady && (
+                        <p className="portal-google-hint">Loading Google Sign-In...</p>
+                      )}
+                    </>
+                  ) : (
+                    <p className="portal-google-hint">Google Sign-In is not configured.</p>
+                  )}
+                </div>
+              </>
             )}
 
             {authView === "signup" && (
-              <form className="portal-auth-form" onSubmit={handlePortalSignup}>
-                <input
-                  type="text"
-                  placeholder="Username"
-                  value={signupData.username}
-                  onChange={(event) => setSignupData({ ...signupData, username: event.target.value })}
-                  required
-                />
-                <input
-                  type="email"
-                  placeholder="Email"
-                  value={signupData.email}
-                  onChange={(event) => setSignupData({ ...signupData, email: event.target.value })}
-                />
-                <input
-                  type="text"
-                  placeholder="First Name"
-                  value={signupData.first_name}
-                  onChange={(event) => setSignupData({ ...signupData, first_name: event.target.value })}
-                />
-                <input
-                  type="text"
-                  placeholder="Last Name"
-                  value={signupData.last_name}
-                  onChange={(event) => setSignupData({ ...signupData, last_name: event.target.value })}
-                />
-                <input
-                  type="password"
-                  placeholder="Password"
-                  value={signupData.password}
-                  onChange={(event) => setSignupData({ ...signupData, password: event.target.value })}
-                  required
-                />
-                <button type="submit" disabled={authLoading}>
-                  {authLoading ? "Creating..." : "Create Account"}
-                </button>
-              </form>
+              <>
+                <form className="portal-auth-form" onSubmit={handlePortalSignup}>
+                  <input
+                    type="text"
+                    placeholder="Username"
+                    value={signupData.username}
+                    onChange={(event) => setSignupData({ ...signupData, username: event.target.value })}
+                    required
+                  />
+                  <input
+                    type="email"
+                    placeholder="Email"
+                    value={signupData.email}
+                    onChange={(event) => setSignupData({ ...signupData, email: event.target.value })}
+                  />
+                  <input
+                    type="text"
+                    placeholder="First Name"
+                    value={signupData.first_name}
+                    onChange={(event) => setSignupData({ ...signupData, first_name: event.target.value })}
+                  />
+                  <input
+                    type="text"
+                    placeholder="Last Name"
+                    value={signupData.last_name}
+                    onChange={(event) => setSignupData({ ...signupData, last_name: event.target.value })}
+                  />
+                  <input
+                    type="password"
+                    placeholder="Password"
+                    value={signupData.password}
+                    onChange={(event) => setSignupData({ ...signupData, password: event.target.value })}
+                    required
+                  />
+                  <button type="submit" disabled={authLoading}>
+                    {authLoading ? "Creating..." : "Create Account"}
+                  </button>
+                </form>
+
+                <div className="portal-google-auth">
+                  <p className="portal-auth-divider">
+                    <span>or sign up with</span>
+                  </p>
+                  {GOOGLE_CLIENT_ID ? (
+                    <>
+                      <div id="google-signin-button" className="portal-google-button-host"></div>
+                      {!googleSignInReady && (
+                        <p className="portal-google-hint">Loading Google Sign-In...</p>
+                      )}
+                    </>
+                  ) : (
+                    <p className="portal-google-hint">Google Sign-In is not configured.</p>
+                  )}
+                </div>
+              </>
             )}
 
             {authView === "forgot" && (

@@ -876,22 +876,22 @@ function WorkerApp() {
       >
         Forgot Password
       </button>
-      <button
-        type="button"
-        className="worker-nav-btn worker-nav-sim-btn"
-        onClick={() => window.location.assign("/simulation")}
-      >
-        Simulation
-      </button>
     </div>
   );
 
+  const isAuthView = view !== "dashboard";
+
   return (
-    <div className="worker-shell">
-      <div className="worker-card">
-        <div className="worker-header">
-          <h1>Worker Panel</h1>
-          <p>Assigned complaints and updates</p>
+    <div className={`worker-shell ${isAuthView ? "worker-shell-auth" : ""}`}>
+      <div className={`worker-card ${isAuthView ? "worker-card-auth" : ""}`}>
+        <div className={`worker-header ${isAuthView ? "worker-header-auth" : ""}`}>
+          {isAuthView && <span className="worker-auth-kicker">Smart Toilet Workforce</span>}
+          <h1>{isAuthView ? "Worker Access Hub" : "Worker Panel"}</h1>
+          <p>
+            {isAuthView
+              ? "Secure login for complaint operations and live field updates."
+              : "Assigned complaints and updates"}
+          </p>
           {view === "dashboard" && worker && (
             <div className="worker-profile">
               <span>
@@ -1099,13 +1099,6 @@ function WorkerApp() {
                 onClick={() => setDashboardTab(DASHBOARD_TAB_RANKING)}
               >
                 Worker Ranking
-              </button>
-              <button
-                type="button"
-                className={dashboardTab === DASHBOARD_TAB_SIMULATION ? "active" : ""}
-                onClick={() => setDashboardTab(DASHBOARD_TAB_SIMULATION)}
-              >
-                Simulation Panel
               </button>
             </div>
 
