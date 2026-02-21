@@ -9,7 +9,7 @@ const PORTAL_API_BASE = "http://127.0.0.1:8000/api/workers/portal";
 const COMPLAINTS_API_BASE = "http://127.0.0.1:8000/api/complaints";
 const SPLASH_DURATION_MS = 3500;
 const LOGIN_BG_VIDEO_PATH =
-  process.env.REACT_APP_LOGIN_BG_VIDEO_URL?.trim() || "https://static.videezy.com/system/resources/previews/000/007/313/original/Plexus.mp4";
+  process.env.REACT_APP_LOGIN_BG_VIDEO_URL?.trim() || "https://cdn.pixabay.com/video/2021/10/05/90875-629483572_large.mp4";
 const PROFILE_STORAGE_PREFIX = "portal_profile_meta_";
 const DEFAULT_PROFILE_META = {
   phone: "",
