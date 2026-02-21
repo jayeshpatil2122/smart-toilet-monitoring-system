@@ -3,15 +3,18 @@ import ReactDOM from 'react-dom/client';
 import './index.css';
 import App from './App';
 import WorkerApp from './worker/WorkerApp';
+import SimulationApp from './simulation/SimulationApp';
 import reportWebVitals from './reportWebVitals';
 import "leaflet/dist/leaflet.css";
 
-const isWorkerRoute = window.location.pathname.startsWith("/worker");
+const currentPath = window.location.pathname;
+const isWorkerRoute = currentPath.startsWith("/worker");
+const isSimulationRoute = currentPath.startsWith("/simulation");
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
   <React.StrictMode>
-    {isWorkerRoute ? <WorkerApp /> : <App />}
+    {isWorkerRoute ? <WorkerApp /> : isSimulationRoute ? <SimulationApp /> : <App />}
   </React.StrictMode>
 );
 

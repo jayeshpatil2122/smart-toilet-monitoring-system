@@ -248,6 +248,23 @@ function App() {
       });
   }, [portalToken]);
 
+  useEffect(() => {
+    if (!portalToken) return undefined;
+
+    const intervalId = setInterval(() => {
+      axios
+        .get("http://127.0.0.1:8000/api/toilets/")
+        .then((response) => {
+          setToilets(response.data);
+        })
+        .catch((error) => {
+          console.error("Error refreshing toilets:", error);
+        });
+    }, 10000);
+
+    return () => clearInterval(intervalId);
+  }, [portalToken]);
+
   const refreshMyComplaints = useCallback(async () => {
     if (!portalToken) return;
     setComplaintsLoading(true);
@@ -999,6 +1016,13 @@ function App() {
               <img src={appLogo} alt="Portal Logo" className="portal-auth-logo" />
               <h1>User Access Portal</h1>
               <p>Secure entry required</p>
+              <button
+                type="button"
+                className="portal-auth-sim-btn"
+                onClick={() => window.location.assign("/simulation")}
+              >
+                Open Simulation Panel
+              </button>
             </div>
 
             {authMessage && <div className="portal-auth-msg ok">{authMessage}</div>}

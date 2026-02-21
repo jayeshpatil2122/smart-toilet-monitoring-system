@@ -5,9 +5,12 @@ import "./WorkerApp.css";
 
 const WORKER_API_BASE = "http://127.0.0.1:8000/api/workers";
 const COMPLAINT_API_BASE = "http://127.0.0.1:8000/api/complaints";
+const SIM_API_HOST = window.location.hostname || "127.0.0.1";
+const TOILETS_API_BASE = `http://${SIM_API_HOST}:8000/api/toilets`;
 const DASHBOARD_TAB_ASSIGNED = "assigned";
 const DASHBOARD_TAB_ALERTS = "alerts";
 const DASHBOARD_TAB_RANKING = "ranking";
+const DASHBOARD_TAB_SIMULATION = "simulation";
 const SLA_TOTAL_SECONDS = 6 * 60 * 60;
 const STATUS_PENDING = "pending";
 const STATUS_IN_PROGRESS = "in progress";
@@ -123,6 +126,26 @@ const formatAverageHours = (seconds) => {
   return `${(seconds / 3600).toFixed(1)} hrs`;
 };
 
+const clampMetric = (value) => {
+  const num = Number(value);
+  if (Number.isNaN(num)) return 0;
+  return Math.max(0, Math.min(100, Math.round(num)));
+};
+
+const getToiletMetricTone = (value) => {
+  const safe = clampMetric(value);
+  if (safe < 40) return "critical";
+  if (safe < 70) return "warning";
+  return "healthy";
+};
+
+const getToiletStatusClass = (status) => {
+  const normalized = String(status || "").toLowerCase();
+  if (normalized === "critical") return "critical";
+  if (normalized === "moderate") return "moderate";
+  return "good";
+};
+
 const getSlaMeta = (complaint, nowTick) => {
   if (!complaint || normalizeStatus(complaint.status) === STATUS_RESOLVED) {
     return {
@@ -173,12 +196,15 @@ function WorkerApp() {
   const [complaints, setComplaints] = useState([]);
   const [alerts, setAlerts] = useState([]);
   const [ranking, setRanking] = useState([]);
+  const [toilets, setToilets] = useState([]);
   const [loadingComplaints, setLoadingComplaints] = useState(false);
   const [loadingAlerts, setLoadingAlerts] = useState(false);
   const [loadingRanking, setLoadingRanking] = useState(false);
+  const [loadingToilets, setLoadingToilets] = useState(false);
   const [authLoading, setAuthLoading] = useState(false);
   const [statusLoadingId, setStatusLoadingId] = useState(null);
   const [alertStatusLoadingId, setAlertStatusLoadingId] = useState(null);
+  const [simulationBusyAction, setSimulationBusyAction] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [resetCodePreview, setResetCodePreview] = useState("");
@@ -189,6 +215,8 @@ function WorkerApp() {
   const [workerLocation, setWorkerLocation] = useState(null);
   const [locationError, setLocationError] = useState("");
   const [nowTick, setNowTick] = useState(Date.now());
+  const [selectedToiletId, setSelectedToiletId] = useState("");
+  const [qrCopied, setQrCopied] = useState(false);
 
   const [loginData, setLoginData] = useState({ username: "", password: "" });
   const [signupData, setSignupData] = useState({
@@ -266,14 +294,35 @@ function WorkerApp() {
     }
   }, []);
 
+  const fetchToilets = useCallback(async () => {
+    setLoadingToilets(true);
+    try {
+      const response = await axios.get(`${TOILETS_API_BASE}/`);
+      const nextToilets = Array.isArray(response.data) ? response.data : [];
+      setToilets(nextToilets);
+      setSelectedToiletId((previous) => {
+        if (previous && nextToilets.some((item) => String(item.id) === String(previous))) {
+          return previous;
+        }
+        return nextToilets.length > 0 ? String(nextToilets[0].id) : "";
+      });
+    } catch (err) {
+      setError(err?.response?.data?.detail || "Could not load toilets for simulation.");
+      setToilets([]);
+    } finally {
+      setLoadingToilets(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (token) {
       setView("dashboard");
       fetchAssignedComplaints(token);
       fetchAssignedAlerts(token);
       fetchRanking();
+      fetchToilets();
     }
-  }, [token, fetchAssignedComplaints, fetchAssignedAlerts, fetchRanking]);
+  }, [token, fetchAssignedComplaints, fetchAssignedAlerts, fetchRanking, fetchToilets]);
 
   useEffect(() => {
     if (view === "dashboard" && dashboardTab === DASHBOARD_TAB_RANKING && ranking.length === 0) {
@@ -288,14 +337,25 @@ function WorkerApp() {
   }, [view, dashboardTab, alerts.length, fetchAssignedAlerts]);
 
   useEffect(() => {
+    if (
+      view === "dashboard" &&
+      dashboardTab === DASHBOARD_TAB_SIMULATION &&
+      toilets.length === 0
+    ) {
+      fetchToilets();
+    }
+  }, [view, dashboardTab, toilets.length, fetchToilets]);
+
+  useEffect(() => {
     if (view !== "dashboard" || !token) return undefined;
     const intervalId = setInterval(() => {
       fetchAssignedComplaints();
       fetchAssignedAlerts();
+      fetchToilets();
       setNowTick(Date.now());
     }, 30000);
     return () => clearInterval(intervalId);
-  }, [view, token, fetchAssignedComplaints, fetchAssignedAlerts]);
+  }, [view, token, fetchAssignedComplaints, fetchAssignedAlerts, fetchToilets]);
 
   useEffect(() => {
     if (view !== "dashboard") return;
@@ -330,6 +390,10 @@ function WorkerApp() {
       el.scrollIntoView({ behavior: "smooth", block: "center" });
     }
   }, [activeComplaintId]);
+
+  useEffect(() => {
+    setQrCopied(false);
+  }, [selectedToiletId]);
 
   const sortedComplaints = useMemo(() => {
     return [...complaints].sort((a, b) => {
@@ -421,6 +485,30 @@ function WorkerApp() {
     };
   }, [complaints]);
 
+  const selectedToilet = useMemo(() => {
+    if (!selectedToiletId) return null;
+    return toilets.find((item) => String(item.id) === String(selectedToiletId)) || null;
+  }, [toilets, selectedToiletId]);
+
+  const isSimulationBusy = simulationBusyAction !== "";
+
+  const selectedToiletStatusClass = useMemo(
+    () => getToiletStatusClass(selectedToilet?.status),
+    [selectedToilet]
+  );
+
+  const qrSimulationUrl = useMemo(() => {
+    if (!selectedToiletId) return "";
+    return `${window.location.origin}/simulation/scan?toilet_id=${selectedToiletId}&users=1`;
+  }, [selectedToiletId]);
+
+  const qrImageUrl = useMemo(() => {
+    if (!qrSimulationUrl) return "";
+    return `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(
+      qrSimulationUrl
+    )}`;
+  }, [qrSimulationUrl]);
+
   const handleLogin = async (event) => {
     event.preventDefault();
     setAuthLoading(true);
@@ -503,11 +591,15 @@ function WorkerApp() {
     setComplaints([]);
     setAlerts([]);
     setRanking([]);
+    setToilets([]);
     setAfterImageFiles({});
     setActiveComplaintId(null);
     setWorkerLocation(null);
     setLocationError("");
     setAlertStatusLoadingId(null);
+    setSimulationBusyAction("");
+    setSelectedToiletId("");
+    setQrCopied(false);
     setView("login");
     setDashboardTab(DASHBOARD_TAB_ASSIGNED);
     clearAlerts();
@@ -627,6 +719,138 @@ function WorkerApp() {
     );
   };
 
+  const upsertToiletState = useCallback((updatedToilet) => {
+    if (!updatedToilet?.id) return;
+    setToilets((previous) => {
+      const alreadyThere = previous.some((item) => item.id === updatedToilet.id);
+      if (!alreadyThere) {
+        return [updatedToilet, ...previous];
+      }
+      return previous.map((item) => (item.id === updatedToilet.id ? updatedToilet : item));
+    });
+  }, []);
+
+  const runSimulationAction = useCallback(
+    async (action, value = null) => {
+      if (!selectedToiletId) {
+        setError("Select a toilet to run simulation.");
+        return;
+      }
+
+      clearAlerts();
+      setQrCopied(false);
+      setSimulationBusyAction(action);
+
+      const simulationUrl = `${TOILETS_API_BASE}/simulate/${selectedToiletId}/`;
+      const buildLegacyPayload = () => {
+        if (action === "increase_usage") {
+          return { action: "incraese_usage", value: value ?? 1 };
+        }
+        if (action === "bulk_usage") {
+          return { action: "incraese_usage", value: value ?? 1 };
+        }
+        if (action === "peak_hour") {
+          return { action: "incraese_usage", value: Math.floor(Math.random() * 21) + 30 };
+        }
+        if (action === "force_critical") {
+          // Legacy fallback: force many users to guarantee critical threshold.
+          return { action: "incraese_usage", value: 220 };
+        }
+        if (action === "reset") {
+          return { action: "reset" };
+        }
+        return null;
+      };
+
+      try {
+        const payload = { action };
+        if (value !== null) {
+          payload.value = value;
+        }
+
+        let response;
+        try {
+          response = await axios.post(simulationUrl, payload);
+        } catch (err) {
+          const errMsg = String(
+            err?.response?.data?.error || err?.response?.data?.detail || ""
+          ).toLowerCase();
+          const fallbackPayload = buildLegacyPayload();
+          if (!fallbackPayload || !errMsg.includes("invalid action")) {
+            throw err;
+          }
+          response = await axios.post(simulationUrl, fallbackPayload);
+        }
+
+        const updatedToilet = response?.data?.toilet;
+        if (updatedToilet) {
+          upsertToiletState(updatedToilet);
+        } else {
+          fetchToilets();
+        }
+        setMessage(response?.data?.message || "Simulation action completed.");
+      } catch (err) {
+        setError(
+          err?.response?.data?.error ||
+            err?.response?.data?.detail ||
+            "Could not run simulation action."
+        );
+      } finally {
+        setSimulationBusyAction("");
+      }
+    },
+    [selectedToiletId, fetchToilets, upsertToiletState]
+  );
+
+  const runQrSimulation = useCallback(async () => {
+    if (!selectedToiletId) {
+      setError("Select a toilet to run simulation.");
+      return;
+    }
+
+    clearAlerts();
+    setQrCopied(false);
+    setSimulationBusyAction("qr_scan");
+
+    try {
+      let response;
+      try {
+        response = await axios.get(`${TOILETS_API_BASE}/simulate/${selectedToiletId}/`, {
+          params: { users: 1, action: "incraese_usage", value: 1 },
+        });
+      } catch (_err) {
+        response = await axios.post(`${TOILETS_API_BASE}/simulate/${selectedToiletId}/`, {
+          action: "incraese_usage",
+          value: 1,
+        });
+      }
+      const updatedToilet = response?.data?.toilet;
+      if (updatedToilet) {
+        upsertToiletState(updatedToilet);
+      } else {
+        fetchToilets();
+      }
+      setMessage(response?.data?.message || "QR simulation completed.");
+    } catch (err) {
+      setError(
+        err?.response?.data?.error || err?.response?.data?.detail || "QR simulation failed."
+      );
+    } finally {
+      setSimulationBusyAction("");
+    }
+  }, [selectedToiletId, fetchToilets, upsertToiletState]);
+
+  const handleCopyQrLink = useCallback(async () => {
+    if (!qrSimulationUrl) return;
+    try {
+      await navigator.clipboard.writeText(qrSimulationUrl);
+      setQrCopied(true);
+      setTimeout(() => setQrCopied(false), 1800);
+    } catch (_error) {
+      setError("Could not copy QR link. You can copy it manually from the textbox.");
+    }
+  }, [qrSimulationUrl]);
+
   const renderAuthNavigation = () => (
     <div className="worker-nav">
       <button
@@ -649,6 +873,13 @@ function WorkerApp() {
         onClick={() => setView("forgot")}
       >
         Forgot Password
+      </button>
+      <button
+        type="button"
+        className="worker-nav-btn worker-nav-sim-btn"
+        onClick={() => window.location.assign("/simulation")}
+      >
+        Simulation
       </button>
     </div>
   );
@@ -809,6 +1040,7 @@ function WorkerApp() {
                     fetchAssignedComplaints();
                     fetchAssignedAlerts();
                     fetchRanking();
+                    fetchToilets();
                   }}
                   className="worker-refresh-btn"
                 >
@@ -865,6 +1097,13 @@ function WorkerApp() {
                 onClick={() => setDashboardTab(DASHBOARD_TAB_RANKING)}
               >
                 Worker Ranking
+              </button>
+              <button
+                type="button"
+                className={dashboardTab === DASHBOARD_TAB_SIMULATION ? "active" : ""}
+                onClick={() => setDashboardTab(DASHBOARD_TAB_SIMULATION)}
+              >
+                Simulation Panel
               </button>
             </div>
 
@@ -1204,6 +1443,198 @@ function WorkerApp() {
                         </article>
                       );
                     })}
+                  </div>
+                )}
+              </section>
+            )}
+
+            {dashboardTab === DASHBOARD_TAB_SIMULATION && (
+              <section className="worker-sim-panel">
+                <div className="worker-section-head">
+                  <h3>Judge Demo Simulation Panel</h3>
+                  <button
+                    type="button"
+                    className="worker-refresh-btn"
+                    onClick={fetchToilets}
+                    disabled={loadingToilets}
+                  >
+                    {loadingToilets ? "Loading Toilets..." : "Refresh Toilets"}
+                  </button>
+                </div>
+
+                {loadingToilets && toilets.length === 0 && (
+                  <p className="worker-empty">Loading toilets...</p>
+                )}
+
+                {!loadingToilets && toilets.length === 0 && (
+                  <p className="worker-empty">No toilets found. Add toilets to run demo simulation.</p>
+                )}
+
+                {toilets.length > 0 && (
+                  <div className="worker-sim-grid">
+                    <article className="worker-sim-card">
+                      <h4>Toilet Selector</h4>
+                      <label htmlFor="worker-simulation-toilet">Select Toilet</label>
+                      <select
+                        id="worker-simulation-toilet"
+                        value={selectedToiletId}
+                        onChange={(event) => setSelectedToiletId(event.target.value)}
+                      >
+                        {toilets.map((item) => (
+                          <option key={`sim-toilet-${item.id}`} value={item.id}>
+                            #{item.id} - {item.name} ({item.location})
+                          </option>
+                        ))}
+                      </select>
+
+                      {selectedToilet && (
+                        <div className="worker-sim-live">
+                          <div className="worker-sim-live-head">
+                            <strong>{selectedToilet.name}</strong>
+                            <span className={`worker-sim-status ${selectedToiletStatusClass}`}>
+                              {selectedToilet.status}
+                            </span>
+                          </div>
+                          <p>{selectedToilet.location}</p>
+                          <div className="worker-sim-metrics">
+                            <span>Usage: {selectedToilet.usage_count}</span>
+                            <span
+                              className={`metric-${getToiletMetricTone(
+                                selectedToilet.cleanliness
+                              )}`}
+                            >
+                              Cleanliness: {clampMetric(selectedToilet.cleanliness)}%
+                            </span>
+                            <span
+                              className={`metric-${getToiletMetricTone(
+                                selectedToilet.water_level
+                              )}`}
+                            >
+                              Water: {clampMetric(selectedToilet.water_level)}%
+                            </span>
+                            <span
+                              className={`metric-${getToiletMetricTone(
+                                selectedToilet.health_score
+                              )}`}
+                            >
+                              Health: {clampMetric(selectedToilet.health_score)}%
+                            </span>
+                            <span>Alert Level: {selectedToilet.alert_level}</span>
+                          </div>
+                          <div className="worker-sim-logic">
+                            <h5>Auto Status Logic</h5>
+                            <ul>
+                              <li>Moderate: cleanliness below 70%</li>
+                              <li>Critical: cleanliness below 40% or water below 20%</li>
+                              <li>Good: all metrics healthy</li>
+                            </ul>
+                          </div>
+                        </div>
+                      )}
+                    </article>
+
+                    <article className="worker-sim-card">
+                      <h4>Usage Simulation Shortcuts</h4>
+                      <p>Use one tap shortcuts for quick demo of status transitions.</p>
+                      <div className="worker-sim-action-grid">
+                        <button
+                          type="button"
+                          onClick={() => runSimulationAction("increase_usage", 1)}
+                          disabled={isSimulationBusy || !selectedToilet}
+                        >
+                          +1 User
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => runSimulationAction("bulk_usage", 10)}
+                          disabled={isSimulationBusy || !selectedToilet}
+                        >
+                          +10 Users
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => runSimulationAction("bulk_usage", 20)}
+                          disabled={isSimulationBusy || !selectedToilet}
+                        >
+                          +20 Users
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => runSimulationAction("bulk_usage", 50)}
+                          disabled={isSimulationBusy || !selectedToilet}
+                        >
+                          +50 Users
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => runSimulationAction("peak_hour")}
+                          disabled={isSimulationBusy || !selectedToilet}
+                        >
+                          Peak Hour (30-50)
+                        </button>
+                      </div>
+                    </article>
+
+                    <article className="worker-sim-card">
+                      <h4>Emergency and Reset</h4>
+                      <p>
+                        Trigger critical condition instantly, then reset to repeat demo for judges.
+                      </p>
+                      <div className="worker-sim-action-grid">
+                        <button
+                          type="button"
+                          className="worker-sim-emergency-btn"
+                          onClick={() => runSimulationAction("force_critical")}
+                          disabled={isSimulationBusy || !selectedToilet}
+                        >
+                          Trigger Emergency
+                        </button>
+                        <button
+                          type="button"
+                          className="worker-sim-reset-btn"
+                          onClick={() => runSimulationAction("reset")}
+                          disabled={isSimulationBusy || !selectedToilet}
+                        >
+                          Reset Toilet
+                        </button>
+                      </div>
+                      {isSimulationBusy && <p className="worker-sim-running">Running simulation...</p>}
+                    </article>
+
+                    <article className="worker-sim-card worker-sim-qr">
+                      <h4>QR Simulation</h4>
+                      <p>
+                        Scan this QR to call <code>/simulate/&lt;toilet_id&gt;/?users=1</code> and
+                        increment usage by one.
+                      </p>
+                      {qrImageUrl && (
+                        <img
+                          src={qrImageUrl}
+                          alt={`QR simulation for toilet ${selectedToiletId}`}
+                          className="worker-sim-qr-image"
+                        />
+                      )}
+                      <input type="text" value={qrSimulationUrl} readOnly />
+                      <div className="worker-sim-qr-actions">
+                        <button
+                          type="button"
+                          onClick={handleCopyQrLink}
+                          disabled={!qrSimulationUrl}
+                        >
+                          {qrCopied ? "Copied" : "Copy QR Link"}
+                        </button>
+                        <a href={qrSimulationUrl} target="_blank" rel="noreferrer">
+                          Open QR Link
+                        </a>
+                        <button
+                          type="button"
+                          onClick={runQrSimulation}
+                          disabled={isSimulationBusy || !selectedToilet}
+                        >
+                          Test QR (+1)
+                        </button>
+                      </div>
+                    </article>
                   </div>
                 )}
               </section>
