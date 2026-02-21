@@ -1,6 +1,11 @@
 import React, { useState } from "react";
 import axios from "axios";
 
+const API_BASE = (
+  process.env.REACT_APP_API_URL?.trim() || "http://127.0.0.1:8000"
+).replace(/\/+$/, "");
+const COMPLAINTS_API_BASE = `${API_BASE}/api/complaints`;
+
 function ComplaintForm({ toiletId, portalToken = "", onComplaintSubmitted = null }) {
   const [issueType, setIssueType] = useState("Dirty");
   const [description, setDescription] = useState("");
@@ -33,7 +38,7 @@ function ComplaintForm({ toiletId, portalToken = "", onComplaintSubmitted = null
       }
 
       const response = await axios.post(
-        "http://127.0.0.1:8000/api/complaints/create/",
+        `${COMPLAINTS_API_BASE}/create/`,
         formData,
         { headers }
       );

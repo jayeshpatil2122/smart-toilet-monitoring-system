@@ -2,8 +2,10 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import "./SimulationApp.css";
 
-const SIM_API_HOST = window.location.hostname || "127.0.0.1";
-const TOILETS_API_BASE = `http://${SIM_API_HOST}:8000/api/toilets`;
+const API_BASE = (
+  process.env.REACT_APP_API_URL?.trim() || "http://127.0.0.1:8000"
+).replace(/\/+$/, "");
+const TOILETS_API_BASE = `${API_BASE}/api/toilets`;
 const FRONTEND_ORIGIN = window.location.origin;
 const SIMULATION_SCAN_PATH_PREFIX = "/simulation/scan";
 

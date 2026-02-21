@@ -1,12 +1,16 @@
-﻿import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import appLogo from "./logo.svg";
 import ComplaintForm from "./ComplaintForm.js";
 import ToiletMap from "./components/ToiletMap";
 import "./App.css";
 
-const PORTAL_API_BASE = "http://127.0.0.1:8000/api/workers/portal";
-const COMPLAINTS_API_BASE = "http://127.0.0.1:8000/api/complaints";
+const API_BASE = (
+  process.env.REACT_APP_API_URL?.trim() || "http://127.0.0.1:8000"
+).replace(/\/+$/, "");
+const PORTAL_API_BASE = `${API_BASE}/api/workers/portal`;
+const COMPLAINTS_API_BASE = `${API_BASE}/api/complaints`;
+const TOILETS_API_BASE = `${API_BASE}/api/toilets`;
 const SPLASH_DURATION_MS = 3500;
 const LOGIN_BG_VIDEO_PATH =
   process.env.REACT_APP_LOGIN_BG_VIDEO_URL?.trim() || "https://cdn.pixabay.com/video/2021/10/05/90875-629483572_large.mp4";
@@ -237,7 +241,7 @@ function App() {
 
     setLoading(true);
     axios
-      .get("http://127.0.0.1:8000/api/toilets/")
+      .get(`${TOILETS_API_BASE}/`)
       .then((response) => {
         setToilets(response.data);
         setLoading(false);
@@ -253,7 +257,7 @@ function App() {
 
     const intervalId = setInterval(() => {
       axios
-        .get("http://127.0.0.1:8000/api/toilets/")
+        .get(`${TOILETS_API_BASE}/`)
         .then((response) => {
           setToilets(response.data);
         })
