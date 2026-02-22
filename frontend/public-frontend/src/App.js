@@ -18,6 +18,7 @@ const GOOGLE_CLIENT_ID = (
   process.env.REACT_APP_GOOGLE_CLIENT_ID?.trim() ||
   "985373381636-pk1i0l5p36u3a11vq1figa30q2mk0a56.apps.googleusercontent.com"
 ).replace(/\s+/g, "");
+const GOOGLE_SIGNIN_TIMEOUT_MS = 7000;
 const PROFILE_STORAGE_PREFIX = "portal_profile_meta_";
 const DEFAULT_PROFILE_META = {
   phone: "",
@@ -196,6 +197,8 @@ function App() {
   const [authMessage, setAuthMessage] = useState("");
   const [authError, setAuthError] = useState("");
   const [googleSignInReady, setGoogleSignInReady] = useState(false);
+  const [googleSignInFailed, setGoogleSignInFailed] = useState(false);
+  const [googleRetryKey, setGoogleRetryKey] = useState(0);
   const [resetCodePreview, setResetCodePreview] = useState("");
   const [loginData, setLoginData] = useState({ username: "", password: "" });
   const [signupData, setSignupData] = useState({
@@ -442,50 +445,93 @@ function App() {
     }
   };
 
+  const handleGoogleRetry = () => {
+    setGoogleSignInReady(false);
+    setGoogleSignInFailed(false);
+    setGoogleRetryKey((prev) => prev + 1);
+  };
+
   const showGoogleAuthOption = authView === "login" || authView === "signup";
 
   useEffect(() => {
+    // Login UI is not mounted during splash or after portal login.
+    // If we initialize too early, the Google button container doesn't exist.
+    if (showSplash || portalToken) {
+      return undefined;
+    }
+
     if (!showGoogleAuthOption || !GOOGLE_CLIENT_ID) {
       setGoogleSignInReady(false);
+      setGoogleSignInFailed(false);
       return undefined;
     }
 
     let isDisposed = false;
+    let loadTimeoutId;
+    let renderCheckId;
     const container = document.getElementById("google-signin-button");
     if (!container) return undefined;
+    setGoogleSignInReady(false);
+    setGoogleSignInFailed(false);
+
+    const markGoogleUnavailable = () => {
+      if (isDisposed) return;
+      setGoogleSignInReady(false);
+      setGoogleSignInFailed(true);
+    };
 
     const renderGoogleButton = () => {
       if (isDisposed || !window.google?.accounts?.id) return;
+      try {
+        window.google.accounts.id.initialize({
+          client_id: GOOGLE_CLIENT_ID,
+          callback: handleGoogleCredentialResponse,
+          auto_select: false,
+          cancel_on_tap_outside: true,
+        });
 
-      window.google.accounts.id.initialize({
-        client_id: GOOGLE_CLIENT_ID,
-        callback: handleGoogleCredentialResponse,
-        auto_select: false,
-        cancel_on_tap_outside: true,
-      });
+        container.innerHTML = "";
+        const buttonWidth = Math.min(Math.max(container.offsetWidth || 240, 200), 320);
+        window.google.accounts.id.renderButton(container, {
+          theme: "outline",
+          size: "large",
+          text: "continue_with",
+          shape: "pill",
+          width: buttonWidth,
+        });
 
-      container.innerHTML = "";
-      const buttonWidth = Math.min(Math.max(container.offsetWidth || 240, 200), 320);
-      window.google.accounts.id.renderButton(container, {
-        theme: "outline",
-        size: "large",
-        text: "continue_with",
-        shape: "pill",
-        width: buttonWidth,
-      });
-      setGoogleSignInReady(true);
+        renderCheckId = window.setTimeout(() => {
+          if (isDisposed) return;
+          const rendered = Boolean(container.querySelector("iframe, div[role='button']"));
+          if (rendered) {
+            setGoogleSignInReady(true);
+            setGoogleSignInFailed(false);
+            if (loadTimeoutId) window.clearTimeout(loadTimeoutId);
+          } else {
+            markGoogleUnavailable();
+          }
+        }, 700);
+      } catch (_error) {
+        markGoogleUnavailable();
+      }
     };
 
     const onScriptError = () => {
-      if (isDisposed) return;
-      setGoogleSignInReady(false);
+      markGoogleUnavailable();
       setAuthError((current) => current || "Unable to load Google Sign-In.");
     };
+
+    loadTimeoutId = window.setTimeout(() => {
+      markGoogleUnavailable();
+      setAuthError((current) => current || "Google Sign-In timed out. Check internet or browser extensions.");
+    }, GOOGLE_SIGNIN_TIMEOUT_MS);
 
     if (window.google?.accounts?.id) {
       renderGoogleButton();
       return () => {
         isDisposed = true;
+        if (loadTimeoutId) window.clearTimeout(loadTimeoutId);
+        if (renderCheckId) window.clearTimeout(renderCheckId);
       };
     }
 
@@ -497,6 +543,8 @@ function App() {
         isDisposed = true;
         existingScript.removeEventListener("load", renderGoogleButton);
         existingScript.removeEventListener("error", onScriptError);
+        if (loadTimeoutId) window.clearTimeout(loadTimeoutId);
+        if (renderCheckId) window.clearTimeout(renderCheckId);
       };
     }
 
@@ -513,8 +561,10 @@ function App() {
       isDisposed = true;
       script.removeEventListener("load", renderGoogleButton);
       script.removeEventListener("error", onScriptError);
+      if (loadTimeoutId) window.clearTimeout(loadTimeoutId);
+      if (renderCheckId) window.clearTimeout(renderCheckId);
     };
-  }, [showGoogleAuthOption, handleGoogleCredentialResponse]);
+  }, [showSplash, portalToken, showGoogleAuthOption, handleGoogleCredentialResponse, googleRetryKey]);
 
   const handlePortalLogout = () => {
     localStorage.removeItem("portal_token");
@@ -1187,8 +1237,22 @@ function App() {
                   {GOOGLE_CLIENT_ID ? (
                     <>
                       <div id="google-signin-button" className="portal-google-button-host"></div>
-                      {!googleSignInReady && (
+                      {!googleSignInReady && !googleSignInFailed && (
                         <p className="portal-google-hint">Loading Google Sign-In...</p>
+                      )}
+                      {googleSignInFailed && (
+                        <>
+                          <p className="portal-google-hint">
+                            Google Sign-In could not load. Check network/adblock and retry.
+                          </p>
+                          <button
+                            type="button"
+                            className="portal-google-retry-btn"
+                            onClick={handleGoogleRetry}
+                          >
+                            Retry Google Sign-In
+                          </button>
+                        </>
                       )}
                     </>
                   ) : (
@@ -1245,8 +1309,22 @@ function App() {
                   {GOOGLE_CLIENT_ID ? (
                     <>
                       <div id="google-signin-button" className="portal-google-button-host"></div>
-                      {!googleSignInReady && (
+                      {!googleSignInReady && !googleSignInFailed && (
                         <p className="portal-google-hint">Loading Google Sign-In...</p>
+                      )}
+                      {googleSignInFailed && (
+                        <>
+                          <p className="portal-google-hint">
+                            Google Sign-In could not load. Check network/adblock and retry.
+                          </p>
+                          <button
+                            type="button"
+                            className="portal-google-retry-btn"
+                            onClick={handleGoogleRetry}
+                          >
+                            Retry Google Sign-In
+                          </button>
+                        </>
                       )}
                     </>
                   ) : (

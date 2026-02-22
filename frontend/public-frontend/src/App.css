@@ -2056,6 +2056,23 @@ body::before {
   font-size: 0.82rem;
 }
 
+.portal-google-retry-btn {
+  justify-self: center;
+  border: 1px solid rgba(128, 202, 255, 0.45);
+  background: rgba(8, 26, 44, 0.5);
+  color: #d7ecff;
+  border-radius: 999px;
+  padding: 8px 16px;
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.portal-google-retry-btn:hover {
+  background: rgba(16, 43, 69, 0.8);
+}
+
 .portal-forgot-wrap {
   display: grid;
   gap: 13px;
