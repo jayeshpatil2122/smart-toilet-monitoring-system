@@ -11,7 +11,8 @@ const API_BASE = (
 const PORTAL_API_BASE = `${API_BASE}/api/workers/portal`;
 const COMPLAINTS_API_BASE = `${API_BASE}/api/complaints`;
 const TOILETS_API_BASE = `${API_BASE}/api/toilets`;
-const SPLASH_DURATION_MS = 3500;
+const APP_NAME = "SANITRAX";
+const SPLASH_DURATION_MS = 3000;
 const LOGIN_BG_VIDEO_PATH =
   process.env.REACT_APP_LOGIN_BG_VIDEO_URL?.trim() || "https://cdn.pixabay.com/video/2021/10/05/90875-629483572_large.mp4";
 const GOOGLE_CLIENT_ID = (
@@ -1003,9 +1004,19 @@ function App() {
                   </div>
                 </div>
 
-                <button className="complaint-btn" onClick={() => handleComplaintClick(toilet.id)}>
-                  Submit Complaint
-                </button>
+                <div className="toilet-card-actions">
+                  <button className="complaint-btn" onClick={() => handleComplaintClick(toilet.id)}>
+                    Submit Complaint
+                  </button>
+                  <button
+                    type="button"
+                    className="direction-btn"
+                    disabled={!hasCoordinates(toilet)}
+                    onClick={() => handleNavigateToToilet(toilet)}
+                  >
+                    Get Direction
+                  </button>
+                </div>
               </div>
             );
           })}
@@ -1159,8 +1170,8 @@ function App() {
       <div className="portal-splash">
         <div className="portal-splash-core">
           <img src={appLogo} alt="Portal Logo" className="portal-splash-logo" />
-          <h1>Smart Public Toilet</h1>
-          <p>Initializing intelligent sanitation network...</p>
+          <h1>{APP_NAME}</h1>
+          <p>Initializing {APP_NAME} sanitation network...</p>
           <div className="portal-loader-grid">
             <span></span>
             <span></span>
@@ -1187,8 +1198,8 @@ function App() {
           <div className="portal-auth-card">
             <div className="portal-auth-head">
               <img src={appLogo} alt="Portal Logo" className="portal-auth-logo" />
-              <h1>User Access Portal</h1>
-              <p>Secure entry required</p>
+              <h1>{APP_NAME} Citizen Access</h1>
+              <p>Secure entry required for {APP_NAME}</p>
             </div>
 
             {authMessage && <div className="portal-auth-msg ok">{authMessage}</div>}
@@ -1468,8 +1479,8 @@ function App() {
       </aside>
 
       <header className="main-header">
-        <p className="eyebrow">Citizen Toilet Portal</p>
-        <h1>Smart Public Toilet</h1>
+        <p className="eyebrow">{APP_NAME} Citizen Panel</p>
+        <h1>{APP_NAME}</h1>
         <h2>Nearby Toilets</h2>
         <div className="portal-userbar">
           <span>Welcome, {displayName || portalProfile?.username || "User"} 👋</span>
@@ -1710,6 +1721,10 @@ function App() {
           </section>
         )}
       </main>
+
+      <footer className="portal-footer">
+        <p>© {new Date().getFullYear()} {APP_NAME}. All rights reserved.</p>
+      </footer>
 
       {selectedToilet !== null && (
         <div className="modal-overlay" onClick={() => setSelectedToilet(null)}>

@@ -25,6 +25,20 @@
   flex-wrap: wrap;
 }
 
+.sim-kicker {
+  display: inline-block;
+  margin-bottom: 6px;
+  border: 1px solid #cbe9d8;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #effaf3, #e7f5ff);
+  color: #245f46;
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 5px 10px;
+}
+
 .sim-head h1 {
   margin: 0;
   color: #184f38;
@@ -251,6 +265,17 @@
 .sim-list-row.active {
   border-color: #68c89a;
   box-shadow: 0 0 0 2px rgba(39, 164, 103, 0.16);
+}
+
+.sim-footer {
+  margin-top: 16px;
+  text-align: center;
+  color: #5a7a6a;
+  font-size: 0.82rem;
+}
+
+.sim-footer p {
+  margin: 0;
 }
 
 @media (max-width: 900px) {

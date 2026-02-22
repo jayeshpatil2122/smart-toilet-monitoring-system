@@ -5,7 +5,35 @@
 
 {% block extrastyle %}
 {{ block.super }}
-<link rel="stylesheet" href="{% static 'custom_admin/admin-theme.css' %}">
+<style>
+  #header {
+    background: linear-gradient(120deg, #0f2c49, #154e7a);
+  }
+  #site-name a {
+    color: #eaf7ff;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+  }
+  #user-tools,
+  #user-tools a,
+  #user-tools button {
+    color: #d9f0ff;
+  }
+  .breadcrumbs {
+    background: #0f2740;
+    color: #cfe7ff;
+    border: none;
+  }
+  .breadcrumbs a {
+    color: #f4fbff;
+  }
+  #footer {
+    color: #4f6a82;
+    text-align: center;
+    padding: 14px 16px 22px;
+    font-size: 0.86rem;
+  }
+</style>
 {% endblock %}
 
 {% block branding %}
@@ -18,3 +46,7 @@
 {% endblock %}
 
 {% block nav-global %}{% endblock %}
+
+{% block footer %}
+  <div>© {% now "Y" %} SANITRAX. All rights reserved.</div>
+{% endblock %}

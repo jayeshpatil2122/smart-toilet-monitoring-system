@@ -919,6 +919,11 @@ body::before {
 }
 
 /* Complaint Button */
+.toilet-card-actions {
+  display: grid;
+  gap: 10px;
+}
+
 .complaint-btn,
 .submit-btn {
   width: 100%;
@@ -957,6 +962,31 @@ body::before {
 .complaint-btn:hover::before,
 .submit-btn:hover::before {
   left: 100%;
+}
+
+.direction-btn {
+  width: 100%;
+  border: 1px solid rgba(80, 168, 255, 0.5);
+  border-radius: var(--radius-md);
+  padding: 12px 18px;
+  background: linear-gradient(135deg, #2f86d0, #1f669f);
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 0.9rem;
+  cursor: pointer;
+  box-shadow: 0 4px 18px rgba(47, 134, 208, 0.28);
+  transition: transform 0.25s ease, box-shadow 0.25s ease, opacity 0.25s ease;
+}
+
+.direction-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(47, 134, 208, 0.4);
+}
+
+.direction-btn:disabled {
+  opacity: 0.58;
+  cursor: not-allowed;
+  transform: none;
 }
 
 .submit-btn:disabled {
@@ -2242,6 +2272,18 @@ body::before {
 .portal-main-content {
   display: grid;
   gap: 18px;
+}
+
+.portal-footer {
+  margin-top: 20px;
+  text-align: center;
+  color: #9fb8ce;
+  font-size: 0.82rem;
+  letter-spacing: 0.04em;
+}
+
+.portal-footer p {
+  margin: 0;
 }
 
 .portal-menu-toggle {

@@ -8,6 +8,7 @@ const API_BASE = (
 const TOILETS_API_BASE = `${API_BASE}/api/toilets`;
 const FRONTEND_ORIGIN = window.location.origin;
 const SIMULATION_SCAN_PATH_PREFIX = "/simulation/scan";
+const APP_NAME = "SANITRAX";
 
 const clampMetric = (value) => {
   const num = Number(value);
@@ -275,7 +276,8 @@ function SimulationApp() {
       <div className="sim-card">
         <div className="sim-head">
           <div>
-            <h1>Simulation Panel</h1>
+            <span className="sim-kicker">{APP_NAME}</span>
+            <h1>{APP_NAME} Simulation Panel</h1>
             <p>Standalone judge demo panel for per-toilet simulation.</p>
           </div>
           <button type="button" onClick={fetchToilets} disabled={loading}>
@@ -405,6 +407,10 @@ function SimulationApp() {
             </article>
           </div>
         )}
+
+        <footer className="sim-footer">
+          <p>© {new Date().getFullYear()} {APP_NAME}. All rights reserved.</p>
+        </footer>
       </div>
     </div>
   );

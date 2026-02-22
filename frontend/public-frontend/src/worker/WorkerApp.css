@@ -83,6 +83,17 @@
   color: var(--wk-text-soft);
 }
 
+.worker-footer {
+  margin-top: 16px;
+  text-align: center;
+  color: #5a7a6a;
+  font-size: 0.82rem;
+}
+
+.worker-footer p {
+  margin: 0;
+}
+
 .worker-profile {
   margin-top: 14px;
   display: flex;

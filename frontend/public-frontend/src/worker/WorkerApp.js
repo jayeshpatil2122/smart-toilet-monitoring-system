@@ -17,6 +17,7 @@ const SLA_TOTAL_SECONDS = 6 * 60 * 60;
 const STATUS_PENDING = "pending";
 const STATUS_IN_PROGRESS = "in progress";
 const STATUS_RESOLVED = "resolved";
+const APP_NAME = "SANITRAX";
 
 const PRIORITY_ORDER = {
   High: 0,
@@ -885,8 +886,8 @@ function WorkerApp() {
     <div className={`worker-shell ${isAuthView ? "worker-shell-auth" : ""}`}>
       <div className={`worker-card ${isAuthView ? "worker-card-auth" : ""}`}>
         <div className={`worker-header ${isAuthView ? "worker-header-auth" : ""}`}>
-          {isAuthView && <span className="worker-auth-kicker">Smart Toilet Workforce</span>}
-          <h1>{isAuthView ? "Worker Access Hub" : "Worker Panel"}</h1>
+          {isAuthView && <span className="worker-auth-kicker">{APP_NAME} Workforce</span>}
+          <h1>{isAuthView ? `${APP_NAME} Worker Access` : `${APP_NAME} Worker Panel`}</h1>
           <p>
             {isAuthView
               ? "Secure login for complaint operations and live field updates."
@@ -1032,7 +1033,7 @@ function WorkerApp() {
           <div className="worker-dashboard">
             <div className="worker-dashboard-head">
               <div>
-                <h2>My Dashboard</h2>
+                <h2>{APP_NAME} Worker Dashboard</h2>
                 <p>Fast complaint handling with map routing and SLA tracking.</p>
               </div>
               <div className="worker-dashboard-head-actions">
@@ -1446,7 +1447,7 @@ function WorkerApp() {
             {dashboardTab === DASHBOARD_TAB_SIMULATION && (
               <section className="worker-sim-panel">
                 <div className="worker-section-head">
-                  <h3>Judge Demo Simulation Panel</h3>
+                  <h3>{APP_NAME} Judge Demo Simulation Panel</h3>
                   <button
                     type="button"
                     className="worker-refresh-btn"
@@ -1715,6 +1716,10 @@ function WorkerApp() {
             )}
           </div>
         )}
+
+        <footer className="worker-footer">
+          <p>© {new Date().getFullYear()} {APP_NAME}. All rights reserved.</p>
+        </footer>
 
         {imagePreview && (
           <div className="worker-image-modal" onClick={closeImagePreview}>
