@@ -452,6 +452,8 @@ function App() {
   };
 
   const showGoogleAuthOption = authView === "login" || authView === "signup";
+  const googleContainerId =
+    authView === "signup" ? "google-signin-button-signup" : "google-signin-button-login";
 
   useEffect(() => {
     // Login UI is not mounted during splash or after portal login.
@@ -469,7 +471,7 @@ function App() {
     let isDisposed = false;
     let loadTimeoutId;
     let renderCheckId;
-    const container = document.getElementById("google-signin-button");
+    const container = document.getElementById(googleContainerId);
     if (!container) return undefined;
     setGoogleSignInReady(false);
     setGoogleSignInFailed(false);
@@ -564,7 +566,15 @@ function App() {
       if (loadTimeoutId) window.clearTimeout(loadTimeoutId);
       if (renderCheckId) window.clearTimeout(renderCheckId);
     };
-  }, [showSplash, portalToken, showGoogleAuthOption, handleGoogleCredentialResponse, googleRetryKey]);
+  }, [
+    showSplash,
+    portalToken,
+    authView,
+    showGoogleAuthOption,
+    handleGoogleCredentialResponse,
+    googleRetryKey,
+    googleContainerId,
+  ]);
 
   const handlePortalLogout = () => {
     localStorage.removeItem("portal_token");
@@ -1236,7 +1246,7 @@ function App() {
                   </p>
                   {GOOGLE_CLIENT_ID ? (
                     <>
-                      <div id="google-signin-button" className="portal-google-button-host"></div>
+                      <div id="google-signin-button-login" className="portal-google-button-host"></div>
                       {!googleSignInReady && !googleSignInFailed && (
                         <p className="portal-google-hint">Loading Google Sign-In...</p>
                       )}
@@ -1308,7 +1318,7 @@ function App() {
                   </p>
                   {GOOGLE_CLIENT_ID ? (
                     <>
-                      <div id="google-signin-button" className="portal-google-button-host"></div>
+                      <div id="google-signin-button-signup" className="portal-google-button-host"></div>
                       {!googleSignInReady && !googleSignInFailed && (
                         <p className="portal-google-hint">Loading Google Sign-In...</p>
                       )}
