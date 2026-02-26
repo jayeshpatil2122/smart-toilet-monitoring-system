@@ -434,6 +434,37 @@
   box-shadow: 0 8px 16px rgba(17, 86, 53, 0.24);
 }
 
+.worker-complaint-filter {
+  margin-top: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.worker-complaint-filter button {
+  border: 1px solid #bfe0ce;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #edf9f2, #e4f4eb);
+  color: #20593f;
+  padding: 10px 14px;
+  font-size: 0.88rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
+}
+
+.worker-complaint-filter button:hover {
+  transform: translateY(-1px);
+  border-color: #8bc8a9;
+}
+
+.worker-complaint-filter button.active {
+  border-color: #177449;
+  background: linear-gradient(135deg, #25a865, #1d8554);
+  color: #ffffff;
+  box-shadow: 0 8px 16px rgba(16, 95, 58, 0.24);
+}
+
 .worker-map-panel,
 .worker-ranking-panel,
 .worker-alerts-panel,
@@ -1585,6 +1616,10 @@
   }
 
   .worker-status-actions button {
+    width: 100%;
+  }
+
+  .worker-complaint-filter button {
     width: 100%;
   }
 

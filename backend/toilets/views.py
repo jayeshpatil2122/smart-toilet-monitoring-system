@@ -1,11 +1,14 @@
 import random
 import re
 
+from django.db.models import Avg, Count, FloatField, OuterRef, Subquery, Value
+from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
+from rest_framework.authtoken.models import Token
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
-from .models import Toilets
+from .models import ToiletRating, Toilets
 from .serializers import ToiletSerializer
 
 
@@ -39,10 +42,55 @@ def _extract_users_from_action(action):
     return _safe_positive_int(match.group(1), default=0)
 
 
+def _resolve_request_user_from_token(request):
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header:
+        return None
+
+    parts = auth_header.split(" ", 1)
+    if len(parts) != 2 or parts[0].lower() != "token":
+        return None
+
+    token_key = parts[1].strip()
+    if not token_key:
+        return None
+
+    token_obj = Token.objects.select_related("user").filter(key=token_key).first()
+    return token_obj.user if token_obj else None
+
+
+def _annotated_toilet_queryset(user=None):
+    toilets = Toilets.objects.all().annotate(
+        average_rating=Coalesce(
+            Avg("ratings__rating"),
+            Value(0.0),
+            output_field=FloatField(),
+        ),
+        ratings_count=Count("ratings"),
+    )
+
+    if user:
+        user_rating_query = ToiletRating.objects.filter(
+            toilet_id=OuterRef("pk"),
+            submitted_by=user,
+        ).values("rating")[:1]
+        toilets = toilets.annotate(my_rating=Subquery(user_rating_query))
+
+    return toilets
+
+
 @api_view(["GET"])
 def get_toilets(request):
-    toilets = Toilets.objects.all()
-    serializer = ToiletSerializer(toilets, many=True)
+    requesting_user = _resolve_request_user_from_token(request)
+    toilets = _annotated_toilet_queryset(user=requesting_user)
+    serializer = ToiletSerializer(
+        toilets,
+        many=True,
+        context={
+            "request": request,
+            "rating_user_id": requesting_user.id if requesting_user else None,
+        },
+    )
     return Response(serializer.data)
 
 
@@ -67,6 +115,44 @@ def clean_toilet(request, pk):
     toilet.save()
     serializer = ToiletSerializer(toilet)
     return Response(serializer.data)
+
+
+@api_view(["POST"])
+def rate_toilet(request, pk):
+    user = _resolve_request_user_from_token(request)
+    if not user:
+        return Response({"detail": "Login is required to submit rating."}, status=401)
+
+    toilet = get_object_or_404(Toilets, id=pk)
+    raw_rating = request.data.get("rating")
+    try:
+        rating_value = int(raw_rating)
+    except (TypeError, ValueError):
+        return Response({"detail": "Rating must be an integer from 1 to 5."}, status=400)
+
+    if rating_value < 1 or rating_value > 5:
+        return Response({"detail": "Rating must be between 1 and 5."}, status=400)
+
+    ToiletRating.objects.update_or_create(
+        toilet=toilet,
+        submitted_by=user,
+        defaults={"rating": rating_value},
+    )
+
+    refreshed_toilet = _annotated_toilet_queryset(user=user).filter(pk=toilet.pk).first()
+    serializer = ToiletSerializer(
+        refreshed_toilet,
+        context={
+            "request": request,
+            "rating_user_id": user.id,
+        },
+    )
+    return Response(
+        {
+            "detail": "Rating submitted successfully.",
+            "toilet": serializer.data,
+        }
+    )
 
 
 @api_view(["GET", "POST"])

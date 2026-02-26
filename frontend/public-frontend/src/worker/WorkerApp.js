@@ -190,6 +190,7 @@ const getSlaMeta = (complaint, nowTick) => {
 function WorkerApp() {
   const [view, setView] = useState("login");
   const [dashboardTab, setDashboardTab] = useState(DASHBOARD_TAB_ASSIGNED);
+  const [complaintStatusFilter, setComplaintStatusFilter] = useState("pending");
   const [token, setToken] = useState(localStorage.getItem("worker_token") || "");
   const [worker, setWorker] = useState(() => {
     const raw = localStorage.getItem("worker_profile");
@@ -407,9 +408,36 @@ function WorkerApp() {
     });
   }, [complaints]);
 
-  const mappableComplaints = useMemo(
-    () => sortedComplaints.filter((item) => hasCoordinates(item)),
+  const pendingWorkCount = useMemo(
+    () =>
+      sortedComplaints.filter((item) => {
+        const status = normalizeStatus(item.status);
+        return status === STATUS_PENDING || status === STATUS_IN_PROGRESS;
+      }).length,
     [sortedComplaints]
+  );
+
+  const resolvedWorkCount = useMemo(
+    () =>
+      sortedComplaints.filter(
+        (item) => normalizeStatus(item.status) === STATUS_RESOLVED
+      ).length,
+    [sortedComplaints]
+  );
+
+  const filteredComplaints = useMemo(
+    () =>
+      sortedComplaints.filter((item) => {
+        const status = normalizeStatus(item.status);
+        if (complaintStatusFilter === "resolved") return status === STATUS_RESOLVED;
+        return status === STATUS_PENDING || status === STATUS_IN_PROGRESS;
+      }),
+    [sortedComplaints, complaintStatusFilter]
+  );
+
+  const mappableComplaints = useMemo(
+    () => filteredComplaints.filter((item) => hasCoordinates(item)),
+    [filteredComplaints]
   );
 
   const complaintsByDistance = useMemo(() => {
@@ -426,6 +454,16 @@ function WorkerApp() {
       }))
       .sort((a, b) => a.distance - b.distance);
   }, [mappableComplaints, workerLocation]);
+
+  useEffect(() => {
+    if (!activeComplaintId) return;
+    const stillVisible = filteredComplaints.some(
+      (complaint) => complaint.id === activeComplaintId
+    );
+    if (!stillVisible) {
+      setActiveComplaintId(null);
+    }
+  }, [activeComplaintId, filteredComplaints]);
 
   const sortedAlerts = useMemo(() => {
     return [...alerts].sort((a, b) => {
@@ -623,6 +661,7 @@ function WorkerApp() {
     setSimulationBusyAction("");
     setSelectedToiletId("");
     setQrCopied(false);
+    setComplaintStatusFilter("pending");
     setView("login");
     setDashboardTab(DASHBOARD_TAB_ASSIGNED);
     clearAlerts();
@@ -1139,6 +1178,23 @@ function WorkerApp() {
 
             {dashboardTab === DASHBOARD_TAB_ASSIGNED && (
               <>
+                <div className="worker-complaint-filter">
+                  <button
+                    type="button"
+                    className={complaintStatusFilter === "pending" ? "active" : ""}
+                    onClick={() => setComplaintStatusFilter("pending")}
+                  >
+                    Pending Work ({pendingWorkCount})
+                  </button>
+                  <button
+                    type="button"
+                    className={complaintStatusFilter === "resolved" ? "active" : ""}
+                    onClick={() => setComplaintStatusFilter("resolved")}
+                  >
+                    Resolved ({resolvedWorkCount})
+                  </button>
+                </div>
+
                 <section className="worker-map-panel">
                   <div className="worker-section-head">
                     <h3>Assigned Complaints Map</h3>
@@ -1201,12 +1257,16 @@ function WorkerApp() {
                 </section>
 
                 {loadingComplaints && <p className="worker-empty">Loading complaints...</p>}
-                {!loadingComplaints && complaints.length === 0 && (
-                  <p className="worker-empty">No complaints assigned yet.</p>
+                {!loadingComplaints && filteredComplaints.length === 0 && (
+                  <p className="worker-empty">
+                    {complaintStatusFilter === "resolved"
+                      ? "No resolved complaints available."
+                      : "No pending complaints available."}
+                  </p>
                 )}
 
                 <div className="worker-complaint-grid">
-                  {sortedComplaints.map((complaint) => {
+                  {filteredComplaints.map((complaint) => {
                     const suggestion = getSmartSuggestion(complaint.issue_type);
                     const beforeImage = complaint.before_image || complaint.image;
                     const selectedAfterFile = afterImageFiles[complaint.id];

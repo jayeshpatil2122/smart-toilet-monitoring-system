@@ -1,5 +1,6 @@
 from django.db import models
 from django.contrib.auth.models import User
+from django.core.validators import MaxValueValidator, MinValueValidator
 import random
 from django.utils import timezone
 
@@ -156,6 +157,30 @@ class Toilets(models.Model):
     def update_status(self):
         self.calculate_values()
         self.save()
+
+
+class ToiletRating(models.Model):
+    toilet = models.ForeignKey(Toilets, on_delete=models.CASCADE, related_name="ratings")
+    submitted_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="toilet_ratings",
+    )
+    rating = models.PositiveSmallIntegerField(
+        validators=[MinValueValidator(1), MaxValueValidator(5)]
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("toilet", "submitted_by")
+        ordering = ["-updated_at"]
+
+    def __str__(self):
+        user_label = self.submitted_by.username if self.submitted_by_id else "Anonymous"
+        return f"{self.toilet.name} - {self.rating} by {user_label}"
 
 
 class ToiletAlert(models.Model):
