@@ -127,7 +127,21 @@ function ToiletMap({ toilets, onSelectToilet, onViewDetails, highlightedToiletId
             <Popup className="custom-popup" closeButton={true}>
               <div className="popup-card">
                 <div className="popup-header">
-                  <h3 className="popup-title">{toilet.name}</h3>
+                  <div className="popup-title-wrap">
+                    <h3 className="popup-title">{toilet.name}</h3>
+                    {toilet.is_disabled_friendly && (
+                      <span
+                        className="popup-accessibility-badge"
+                        aria-label="Disabled-friendly toilet"
+                        title="Disabled-friendly toilet"
+                      >
+                        <span className="popup-accessibility-icon" aria-hidden="true">
+                          {"\u267F"}
+                        </span>
+                        Disabled-Friendly
+                      </span>
+                    )}
+                  </div>
                   <span
                     className="popup-badge"
                     style={{

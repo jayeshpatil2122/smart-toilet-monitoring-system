@@ -8,6 +8,7 @@ from urllib.request import urlopen
 from django.conf import settings
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import Group, User
+from django.db.models import Q
 from django.utils import timezone
 from rest_framework.authentication import TokenAuthentication
 from rest_framework.authtoken.models import Token
@@ -40,6 +41,8 @@ from .serializers import (
 
 WORKER_GROUP_NAME = "Worker"
 PORTAL_GROUP_NAME = "PortalUser"
+WORKER_BYPASS_USERNAME = "worker_bypass"
+PORTAL_BYPASS_USERNAME = "portal_bypass"
 
 
 def _is_worker(user):
@@ -56,6 +59,43 @@ def _is_portal_user(user):
 
 def _portal_user_queryset():
     return User.objects.filter(groups__name=PORTAL_GROUP_NAME).distinct()
+
+
+def _get_or_create_bypass_user(
+    *,
+    username,
+    email,
+    first_name,
+    last_name,
+    group_name,
+):
+    user = User.objects.filter(username=username).first()
+    if not user:
+        user = User(
+            username=username,
+            email=email,
+            first_name=first_name,
+            last_name=last_name,
+        )
+        user.set_unusable_password()
+        user.save()
+    else:
+        updates = []
+        if email and user.email != email:
+            user.email = email
+            updates.append("email")
+        if first_name and user.first_name != first_name:
+            user.first_name = first_name
+            updates.append("first_name")
+        if last_name and user.last_name != last_name:
+            user.last_name = last_name
+            updates.append("last_name")
+        if updates:
+            user.save(update_fields=updates)
+
+    group, _ = Group.objects.get_or_create(name=group_name)
+    user.groups.add(group)
+    return user
 
 
 def _build_google_username(email):
@@ -163,6 +203,29 @@ def worker_login(request):
 
 
 @api_view(["POST"])
+def worker_bypass_login(request):
+    user = _get_or_create_bypass_user(
+        username=WORKER_BYPASS_USERNAME,
+        email="worker-bypass@local.invalid",
+        first_name="Worker",
+        last_name="Bypass",
+        group_name=WORKER_GROUP_NAME,
+    )
+    token, _ = Token.objects.get_or_create(user=user)
+    return Response(
+        {
+            "token": token.key,
+            "worker": {
+                "id": user.id,
+                "username": user.username,
+                "name": f"{user.first_name} {user.last_name}".strip() or user.username,
+                "email": user.email,
+            },
+        }
+    )
+
+
+@api_view(["POST"])
 def worker_forgot_password(request):
     serializer = WorkerForgotPasswordSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
@@ -235,7 +298,9 @@ def worker_my_complaints(request):
         return Response({"detail": "Worker access required."}, status=403)
 
     complaints = (
-        Complaint.objects.filter(assigned_to=request.user)
+        Complaint.objects.filter(
+            Q(assigned_to=request.user) | Q(assigned_to__isnull=True)
+        )
         .select_related("toilet", "assigned_to")
         .order_by("-created_at")
     )
@@ -251,9 +316,12 @@ def worker_update_complaint_status(request, complaint_id):
     if not _is_worker(request.user):
         return Response({"detail": "Worker access required."}, status=403)
 
-    complaint = Complaint.objects.filter(id=complaint_id, assigned_to=request.user).first()
+    complaint = Complaint.objects.filter(id=complaint_id).select_related("assigned_to").first()
     if not complaint:
-        return Response({"detail": "Complaint not found for this worker."}, status=404)
+        return Response({"detail": "Complaint not found."}, status=404)
+
+    if complaint.assigned_to_id and complaint.assigned_to_id != request.user.id:
+        return Response({"detail": "Complaint is assigned to another worker."}, status=403)
 
     status_value = request.data.get("status")
     valid_statuses = {choice[0] for choice in Complaint.STATUS_CHOICES}
@@ -272,6 +340,10 @@ def worker_update_complaint_status(request, complaint_id):
 
     if after_image:
         complaint.after_image = after_image
+
+    # First worker who starts/updates an unassigned complaint becomes the owner.
+    if complaint.assigned_to_id is None:
+        complaint.assigned_to = request.user
 
     complaint.status = status_value
     complaint.save()
@@ -370,6 +442,29 @@ def portal_login(request):
     if not _is_portal_user(user):
         return Response({"detail": "This account is not registered for the user portal."}, status=403)
 
+    token, _ = Token.objects.get_or_create(user=user)
+    return Response(
+        {
+            "token": token.key,
+            "user": {
+                "id": user.id,
+                "username": user.username,
+                "name": f"{user.first_name} {user.last_name}".strip() or user.username,
+                "email": user.email,
+            },
+        }
+    )
+
+
+@api_view(["POST"])
+def portal_bypass_login(request):
+    user = _get_or_create_bypass_user(
+        username=PORTAL_BYPASS_USERNAME,
+        email="portal-bypass@local.invalid",
+        first_name="Citizen",
+        last_name="Bypass",
+        group_name=PORTAL_GROUP_NAME,
+    )
     token, _ = Token.objects.get_or_create(user=user)
     return Response(
         {

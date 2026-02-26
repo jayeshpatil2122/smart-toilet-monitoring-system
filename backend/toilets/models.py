@@ -7,6 +7,10 @@ from django.utils import timezone
 class Toilets(models.Model):
     name = models.CharField(max_length=100)
     location = models.CharField(max_length=200)
+    is_disabled_friendly = models.BooleanField(
+        default=False,
+        help_text="Enable if this toilet can be used by disabled persons.",
+    )
     latitude = models.FloatField(null=True, blank=True)
     longitude = models.FloatField(null=True, blank=True)
 

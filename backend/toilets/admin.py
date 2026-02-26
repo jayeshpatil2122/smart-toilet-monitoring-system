@@ -3,7 +3,32 @@ from django.contrib.auth.models import User
 from django.urls import reverse
 from django.utils.html import format_html
 
+from complaints.models import Complaint
 from .models import ToiletAlert, Toilets
+
+
+class ComplaintInline(admin.TabularInline):
+    model = Complaint
+    extra = 0
+    can_delete = False
+    show_change_link = True
+    fields = (
+        "issue_type",
+        "status",
+        "priority",
+        "assigned_to",
+        "created_at",
+        "before_image_preview",
+    )
+    readonly_fields = fields
+    ordering = ("-created_at",)
+
+    def before_image_preview(self, obj):
+        if obj.image:
+            return format_html('<img src="{}" width="120" style="border-radius:6px;" />', obj.image.url)
+        return "No Image"
+
+    before_image_preview.short_description = "Before Image"
 
 
 @admin.register(Toilets)
@@ -13,6 +38,7 @@ class ToiletsAdmin(admin.ModelAdmin):
         'id',
         'name',
         'location',
+        'is_disabled_friendly',
         'latitude',
         'longitude',
         'usage_count',
@@ -38,6 +64,7 @@ class ToiletsAdmin(admin.ModelAdmin):
     fields = (
         'name',
         'location',
+        'is_disabled_friendly',
         'latitude',
         'longitude',
         'usage_count',
@@ -51,8 +78,9 @@ class ToiletsAdmin(admin.ModelAdmin):
     )
 
     search_fields = ('name', 'location', 'status')
-    list_filter = ('status', 'alert_level')
+    list_filter = ('status', 'alert_level', 'is_disabled_friendly')
     ordering = ('-alert_level',)
+    inlines = (ComplaintInline,)
 
     # Custom actions for resetting toilet data
     actions = ['reset_toilet_data']

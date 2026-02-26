@@ -367,6 +367,21 @@ function App() {
     }
   };
 
+  const handlePortalBypass = async () => {
+    setAuthLoading(true);
+    clearAuthNotices();
+    try {
+      const response = await axios.post(`${PORTAL_API_BASE}/bypass/`);
+      const { token, user } = response.data;
+      completePortalLogin(token, user);
+      setAuthMessage("Bypass login successful.");
+    } catch (error) {
+      setAuthError(error?.response?.data?.detail || "Bypass login failed.");
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
   const handleGoogleCredentialResponse = useCallback(
     async (credentialResponse) => {
       const idToken = credentialResponse?.credential;
@@ -957,6 +972,18 @@ function App() {
               >
                 <div className="toilet-card-header">
                   <div>
+                    {toilet.is_disabled_friendly && (
+                      <span
+                        className="accessibility-badge"
+                        aria-label="Disabled-friendly toilet"
+                        title="Disabled-friendly toilet"
+                      >
+                        <span className="accessibility-icon" aria-hidden="true">
+                          {"\u267F"}
+                        </span>
+                        Disabled-Friendly
+                      </span>
+                    )}
                     <h3 className="toilet-name">{toilet.name}</h3>
                     <p className="toilet-location">{toilet.location}</p>
                   </div>
@@ -1406,6 +1433,18 @@ function App() {
                 )}
               </div>
             )}
+
+            <div className="portal-bypass-wrap">
+              <button
+                type="button"
+                className="portal-bypass-btn"
+                onClick={handlePortalBypass}
+                disabled={authLoading}
+              >
+                {authLoading ? "Opening..." : "Bypass"}
+              </button>
+              <p>Skip login/signup and open the citizen panel directly.</p>
+            </div>
           </div>
         </div>
       </div>
