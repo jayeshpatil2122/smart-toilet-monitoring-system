@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import appLogo from "./logo.svg";
 import ComplaintForm from "./ComplaintForm.js";
@@ -66,6 +66,8 @@ const FAQ_ITEMS = [
       "Use Forgot Password to get a reset code, then use the reset form in your profile section.",
   },
 ];
+
+const RATING_STARS = [1, 2, 3, 4, 5];
 
 const parseJsonOr = (rawValue, fallbackValue) => {
   if (!rawValue) return fallbackValue;
@@ -186,6 +188,10 @@ function App() {
   const [detailsOnlyId, setDetailsOnlyId] = useState(null);
   const [showAllToilets, setShowAllToilets] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
+  const [voiceSearchActive, setVoiceSearchActive] = useState(false);
+  const [voiceSearchSupported, setVoiceSearchSupported] = useState(false);
+  const [ratingSubmittingToiletId, setRatingSubmittingToiletId] = useState(null);
+  const [disabledFriendlyRankings, setDisabledFriendlyRankings] = useState([]);
 
   const [showSplash, setShowSplash] = useState(true);
   const [portalToken, setPortalToken] = useState(localStorage.getItem("portal_token") || "");
@@ -225,6 +231,9 @@ function App() {
   const [nearestToiletInfo, setNearestToiletInfo] = useState(null);
   const [mapFilterMessage, setMapFilterMessage] = useState("");
 
+  const voiceRecognitionRef = useRef(null);
+  const welcomeSpokenTokenRef = useRef("");
+
   const [myComplaints, setMyComplaints] = useState([]);
   const [complaintsLoading, setComplaintsLoading] = useState(false);
   const [complaintsError, setComplaintsError] = useState("");
@@ -242,6 +251,20 @@ function App() {
   }, []);
 
   useEffect(() => {
+    const recognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
+    setVoiceSearchSupported(Boolean(recognitionCtor));
+    return () => {
+      if (voiceRecognitionRef.current) {
+        voiceRecognitionRef.current.onstart = null;
+        voiceRecognitionRef.current.onend = null;
+        voiceRecognitionRef.current.onerror = null;
+        voiceRecognitionRef.current.onresult = null;
+        voiceRecognitionRef.current.abort();
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     if (!portalToken) {
       setToilets([]);
       setLoading(false);
@@ -250,7 +273,9 @@ function App() {
 
     setLoading(true);
     axios
-      .get(`${TOILETS_API_BASE}/`)
+      .get(`${TOILETS_API_BASE}/`, {
+        headers: { Authorization: `Token ${portalToken}` },
+      })
       .then((response) => {
         setToilets(response.data);
         setLoading(false);
@@ -266,7 +291,9 @@ function App() {
 
     const intervalId = setInterval(() => {
       axios
-        .get(`${TOILETS_API_BASE}/`)
+        .get(`${TOILETS_API_BASE}/`, {
+          headers: { Authorization: `Token ${portalToken}` },
+        })
         .then((response) => {
           setToilets(response.data);
         })
@@ -341,6 +368,43 @@ function App() {
     setAuthMessage("");
     setAuthError("");
   };
+
+  const getPreferredVoice = useCallback(() => {
+    if (!window.speechSynthesis) return null;
+    const voices = window.speechSynthesis.getVoices() || [];
+    if (!voices.length) return null;
+
+    const preferredPatterns = [
+      /Google UK English Female/i,
+      /Google US English/i,
+      /Microsoft Zira/i,
+      /Samantha/i,
+      /Aria/i,
+    ];
+    for (const pattern of preferredPatterns) {
+      const match = voices.find((voice) => pattern.test(voice.name));
+      if (match) return match;
+    }
+    return (
+      voices.find((voice) => String(voice.lang || "").toLowerCase().startsWith("en")) || voices[0]
+    );
+  }, []);
+
+  const speakText = useCallback(
+    (text, options = {}) => {
+      if (!text || !window.speechSynthesis || !window.SpeechSynthesisUtterance) return;
+
+      const utterance = new window.SpeechSynthesisUtterance(String(text));
+      utterance.voice = getPreferredVoice();
+      utterance.rate = options.rate ?? 0.94;
+      utterance.pitch = options.pitch ?? 1.02;
+      utterance.volume = options.volume ?? 1;
+
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(utterance);
+    },
+    [getPreferredVoice]
+  );
 
   const completePortalLogin = useCallback((token, user) => {
     localStorage.setItem("portal_token", token);
@@ -606,7 +670,10 @@ function App() {
     setMyComplaints([]);
     setMapFilterMode("default");
     setNearestToiletInfo(null);
+    setDisabledFriendlyRankings([]);
     setMapFilterMessage("");
+    setVoiceSearchActive(false);
+    welcomeSpokenTokenRef.current = "";
   };
 
   const openSection = (sectionId) => {
@@ -728,6 +795,11 @@ function App() {
     [toilets]
   );
 
+  const disabledFriendlyToilets = useMemo(
+    () => toilets.filter((toilet) => toilet.is_disabled_friendly),
+    [toilets]
+  );
+
   const cleanestTopToilets = useMemo(() => {
     return [...mappableToilets]
       .sort((first, second) => {
@@ -739,6 +811,22 @@ function App() {
       .slice(0, 5);
   }, [mappableToilets]);
 
+  const disabledFriendlyToiletsByDistance = useMemo(() => {
+    if (!disabledFriendlyRankings.length) return [];
+
+    const toiletLookupMap = new Map(toilets.map((toilet) => [toilet.id, toilet]));
+    return disabledFriendlyRankings
+      .map((rankedItem) => {
+        const toilet = toiletLookupMap.get(rankedItem.toiletId);
+        if (!toilet) return null;
+        return {
+          ...toilet,
+          distanceKm: rankedItem.distanceKm,
+        };
+      })
+      .filter(Boolean);
+  }, [disabledFriendlyRankings, toilets]);
+
   const nearestToiletData = useMemo(() => {
     if (!nearestToiletInfo) return null;
     return toilets.find((toilet) => toilet.id === nearestToiletInfo.toiletId) || null;
@@ -747,16 +835,34 @@ function App() {
   const mapToilets = useMemo(() => {
     if (mapFilterMode === "nearby" && nearestToiletData) return [nearestToiletData];
     if (mapFilterMode === "cleanest" && cleanestTopToilets.length > 0) return cleanestTopToilets;
+    if (mapFilterMode === "disabled" && disabledFriendlyToiletsByDistance.length > 0) {
+      return disabledFriendlyToiletsByDistance;
+    }
     return toilets;
-  }, [mapFilterMode, nearestToiletData, cleanestTopToilets, toilets]);
+  }, [
+    mapFilterMode,
+    nearestToiletData,
+    cleanestTopToilets,
+    disabledFriendlyToiletsByDistance,
+    toilets,
+  ]);
 
   const mapHighlightedToiletIds = useMemo(() => {
     if (mapFilterMode === "nearby" && nearestToiletData) return [nearestToiletData.id];
     if (mapFilterMode === "cleanest" && cleanestTopToilets.length > 0) {
       return cleanestTopToilets.map((toilet) => toilet.id);
     }
+    if (mapFilterMode === "disabled" && disabledFriendlyToiletsByDistance.length > 0) {
+      return disabledFriendlyToiletsByDistance.map((toilet) => toilet.id);
+    }
     return highlightedToiletIds;
-  }, [mapFilterMode, nearestToiletData, cleanestTopToilets, highlightedToiletIds]);
+  }, [
+    mapFilterMode,
+    nearestToiletData,
+    cleanestTopToilets,
+    disabledFriendlyToiletsByDistance,
+    highlightedToiletIds,
+  ]);
 
   const toiletLookup = useMemo(() => {
     const map = new Map();
@@ -789,6 +895,20 @@ function App() {
     const source = displayName || portalProfile?.username || "U";
     return String(source).charAt(0).toUpperCase();
   }, [displayName, portalProfile]);
+
+  useEffect(() => {
+    if (!portalToken || !displayName) {
+      welcomeSpokenTokenRef.current = "";
+      return;
+    }
+
+    if (welcomeSpokenTokenRef.current === portalToken) {
+      return;
+    }
+
+    speakText(`Welcome ${displayName}. Smart toilet panel is ready for you.`);
+    welcomeSpokenTokenRef.current = portalToken;
+  }, [portalToken, displayName, speakText]);
 
   const handleViewDetailsFromMap = (toiletId) => {
     setSelectedToilet(null);
@@ -832,6 +952,7 @@ function App() {
   const handleShowNearbyToilet = async () => {
     setMapFilterMessage("");
     setActiveSection("map");
+    setDisabledFriendlyRankings([]);
 
     if (mappableToilets.length === 0) {
       setMapFilterMode("default");
@@ -874,6 +995,11 @@ function App() {
       setShowAllToilets(false);
       setDetailsOnlyId(null);
       setFocusedToiletId(null);
+      speakText(
+        `Nearest toilet is ${nearestToilet.name}, approximately ${nearestDistance.toFixed(
+          2
+        )} kilometers away.`
+      );
     } catch (_error) {
       setMapFilterMode("default");
       setMapFilterMessage("Please allow location access to find nearby toilets.");
@@ -884,6 +1010,7 @@ function App() {
     setMapFilterMessage("");
     setActiveSection("map");
     setNearestToiletInfo(null);
+    setDisabledFriendlyRankings([]);
 
     if (cleanestTopToilets.length === 0) {
       setMapFilterMode("default");
@@ -897,9 +1024,84 @@ function App() {
     setFocusedToiletId(null);
   };
 
+  const handleShowDisabledFriendlyToilets = async () => {
+    setMapFilterMessage("");
+    setActiveSection("map");
+    setNearestToiletInfo(null);
+
+    if (disabledFriendlyToilets.length === 0) {
+      setMapFilterMode("default");
+      setDisabledFriendlyRankings([]);
+      setMapFilterMessage("No disabled-friendly toilets are available right now.");
+      return;
+    }
+
+    let rankedToilets = [];
+    try {
+      const position = await requestCurrentPosition();
+      const userLat = Number(position.coords.latitude);
+      const userLng = Number(position.coords.longitude);
+
+      const withCoordinates = disabledFriendlyToilets
+        .filter((toilet) => hasCoordinates(toilet))
+        .map((toilet) => ({
+          toiletId: toilet.id,
+          distanceKm: getDistanceKm(
+            userLat,
+            userLng,
+            Number(toilet.latitude),
+            Number(toilet.longitude)
+          ),
+        }))
+        .sort((first, second) => first.distanceKm - second.distanceKm);
+
+      const withoutCoordinates = disabledFriendlyToilets
+        .filter((toilet) => !hasCoordinates(toilet))
+        .sort((first, second) => first.name.localeCompare(second.name))
+        .map((toilet) => ({
+          toiletId: toilet.id,
+          distanceKm: null,
+        }));
+
+      rankedToilets = [...withCoordinates, ...withoutCoordinates];
+    } catch (_error) {
+      rankedToilets = [...disabledFriendlyToilets]
+        .sort((first, second) => first.name.localeCompare(second.name))
+        .map((toilet) => ({
+          toiletId: toilet.id,
+          distanceKm: null,
+        }));
+      setMapFilterMessage(
+        "Showing disabled-friendly toilets. Enable location for nearest-first distance sorting."
+      );
+    }
+
+    setDisabledFriendlyRankings(rankedToilets);
+    setMapFilterMode("disabled");
+    setShowAllToilets(false);
+    setDetailsOnlyId(null);
+    setFocusedToiletId(null);
+
+    if (rankedToilets.length > 0) {
+      const firstToilet = disabledFriendlyToilets.find(
+        (toilet) => toilet.id === rankedToilets[0].toiletId
+      );
+      if (firstToilet) {
+        const distanceLine =
+          rankedToilets[0].distanceKm === null
+            ? "Distance is unavailable."
+            : `It is ${rankedToilets[0].distanceKm.toFixed(2)} kilometers away.`;
+        speakText(
+          `Nearest disabled-friendly option is ${firstToilet.name}. ${distanceLine}`
+        );
+      }
+    }
+  };
+
   const handleShowAllMapPins = () => {
     setMapFilterMode("default");
     setNearestToiletInfo(null);
+    setDisabledFriendlyRankings([]);
     setMapFilterMessage("");
   };
 
@@ -911,6 +1113,62 @@ function App() {
     );
   };
 
+  const handleVoiceToiletSearch = () => {
+    const RecognitionConstructor =
+      window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    if (!RecognitionConstructor) {
+      setMapFilterMessage("Voice search is not supported in this browser.");
+      return;
+    }
+
+    setMapFilterMessage("");
+    setActiveSection("map");
+
+    if (!voiceRecognitionRef.current) {
+      const recognition = new RecognitionConstructor();
+      recognition.lang = "en-IN";
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+      voiceRecognitionRef.current = recognition;
+    }
+
+    const recognition = voiceRecognitionRef.current;
+    recognition.onstart = () => setVoiceSearchActive(true);
+    recognition.onend = () => setVoiceSearchActive(false);
+    recognition.onerror = () => {
+      setVoiceSearchActive(false);
+      setMapFilterMessage("Could not capture voice. Please try again.");
+    };
+    recognition.onresult = (event) => {
+      const spokenText = String(event?.results?.[0]?.[0]?.transcript || "").trim();
+      setVoiceSearchActive(false);
+      if (!spokenText) {
+        setMapFilterMessage("No speech detected. Please try again.");
+        return;
+      }
+
+      setSearchTerm(spokenText);
+      setMapFilterMode("default");
+      setNearestToiletInfo(null);
+      setDisabledFriendlyRankings([]);
+      setMapFilterMessage("");
+      speakText(`Searching toilets for ${spokenText}.`);
+    };
+
+    if (voiceSearchActive) {
+      recognition.stop();
+      return;
+    }
+
+    try {
+      recognition.start();
+    } catch (_error) {
+      setVoiceSearchActive(false);
+      setMapFilterMessage("Voice search is busy. Please try again in a moment.");
+    }
+  };
+
   const handleSearchSubmit = (event) => {
     event.preventDefault();
     if (!query) return;
@@ -919,6 +1177,34 @@ function App() {
       setNearestToiletInfo(null);
       setMapFilterMessage("");
       handleViewDetailsFromMap(matchingToilets[0].id);
+    }
+  };
+
+  const handleToiletRatingSubmit = async (toiletId, ratingValue) => {
+    if (!portalToken) return;
+
+    setRatingSubmittingToiletId(toiletId);
+    try {
+      const response = await axios.post(
+        `${TOILETS_API_BASE}/${toiletId}/rate/`,
+        { rating: ratingValue },
+        { headers: { Authorization: `Token ${portalToken}` } }
+      );
+
+      const updatedToilet = response?.data?.toilet;
+      if (updatedToilet?.id) {
+        setToilets((previous) =>
+          previous.map((toilet) =>
+            toilet.id === updatedToilet.id ? { ...toilet, ...updatedToilet } : toilet
+          )
+        );
+      }
+    } catch (error) {
+      setMapFilterMessage(
+        error?.response?.data?.detail || "Could not submit rating. Please try again."
+      );
+    } finally {
+      setRatingSubmittingToiletId(null);
     }
   };
 
@@ -961,6 +1247,10 @@ function App() {
             const healthValue = clampPercentage(toilet.health_score);
             const cleanlinessValue = clampPercentage(toilet.cleanliness);
             const waterValue = clampPercentage(toilet.water_level);
+            const averageRating = Number(toilet.average_rating || 0);
+            const ratingsCount = Number(toilet.ratings_count || 0);
+            const myRating = Number(toilet.my_rating || 0);
+            const visibleRating = myRating || Math.round(averageRating);
 
             return (
               <div
@@ -1044,6 +1334,34 @@ function App() {
                     Get Direction
                   </button>
                 </div>
+
+                <div className="toilet-rating-box">
+                  <div className="toilet-rating-head">
+                    <span>Citizen Rating</span>
+                    <b>
+                      {averageRating.toFixed(1)} / 5 ({ratingsCount})
+                    </b>
+                  </div>
+                  <div className="toilet-rating-stars">
+                    {RATING_STARS.map((star) => (
+                      <button
+                        key={`${toilet.id}-rating-${star}`}
+                        type="button"
+                        className={`toilet-star-btn ${star <= visibleRating ? "active" : ""} ${
+                          star <= myRating ? "mine" : ""
+                        }`}
+                        onClick={() => handleToiletRatingSubmit(toilet.id, star)}
+                        disabled={ratingSubmittingToiletId === toilet.id}
+                        title={`Rate ${star} star${star > 1 ? "s" : ""}`}
+                      >
+                        ★
+                      </button>
+                    ))}
+                  </div>
+                  <small className="toilet-rating-note">
+                    {myRating > 0 ? `Your rating: ${myRating}/5` : "Tap a star to rate this toilet"}
+                  </small>
+                </div>
               </div>
             );
           })}
@@ -1070,6 +1388,13 @@ function App() {
           >
             Cleanest Toilets
           </button>
+          <button
+            type="button"
+            className={`map-quick-btn ${mapFilterMode === "disabled" ? "active" : ""}`}
+            onClick={handleShowDisabledFriendlyToilets}
+          >
+            Disabled Persons
+          </button>
           {mapFilterMode !== "default" && (
             <button
               type="button"
@@ -1091,6 +1416,19 @@ function App() {
           />
           <button type="submit" className="map-search-btn">
             Search
+          </button>
+          <button
+            type="button"
+            className={`map-search-btn map-search-voice-btn ${voiceSearchActive ? "active" : ""}`}
+            onClick={handleVoiceToiletSearch}
+            disabled={!voiceSearchSupported}
+            title={
+              voiceSearchSupported
+                ? "Speak toilet name to search"
+                : "Voice search not supported in this browser"
+            }
+          >
+            {voiceSearchActive ? "Listening..." : "Voice Search"}
           </button>
         </form>
 
@@ -1168,6 +1506,41 @@ function App() {
                   <p>{toilet.location}</p>
                 </div>
                 <span className="cleanest-score">{clampPercentage(toilet.cleanliness)}%</span>
+                <div className="cleanest-actions">
+                  <button type="button" onClick={() => handleViewDetailsFromMap(toilet.id)}>
+                    Details
+                  </button>
+                  <button type="button" onClick={() => handleNavigateToToilet(toilet)}>
+                    Navigate
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {mapFilterMode === "disabled" && disabledFriendlyToiletsByDistance.length > 0 && (
+        <section className="cleanest-panel disabled-friendly-panel">
+          <div className="cleanest-panel-head">
+            <h3>Disabled-Friendly Toilets</h3>
+            <p>Nearest first based on your current location</p>
+          </div>
+
+          <div className="cleanest-list">
+            {disabledFriendlyToiletsByDistance.map((toilet, index) => (
+              <article
+                key={`disabled-toilet-${toilet.id}`}
+                className={`cleanest-item ${index === 0 ? "best" : ""}`}
+              >
+                <span className="cleanest-rank">#{index + 1}</span>
+                <div className="cleanest-info">
+                  <h4>{toilet.name}</h4>
+                  <p>{toilet.location}</p>
+                </div>
+                <span className="cleanest-score">
+                  {toilet.distanceKm === null ? "N/A" : `${toilet.distanceKm.toFixed(2)} km`}
+                </span>
                 <div className="cleanest-actions">
                   <button type="button" onClick={() => handleViewDetailsFromMap(toilet.id)}>
                     Details

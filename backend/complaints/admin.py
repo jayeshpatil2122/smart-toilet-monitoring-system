@@ -13,7 +13,7 @@ class ComplaintAdmin(admin.ModelAdmin):
         "issue_type",
         "priority",
         "status",
-        "is_escalated",
+        "escalation_state",
         "assigned_to",
         "created_at",
     )
@@ -35,6 +35,17 @@ class ComplaintAdmin(admin.ModelAdmin):
         return "No Image"
 
     image_preview.short_description = "Image Preview"
+
+    def escalation_state(self, obj):
+        if obj.is_escalated:
+            return format_html(
+                '<span style="padding:4px 10px;border-radius:999px;background:#ffedd5;color:#9a3412;font-weight:700;">Escalated</span>'
+            )
+        return format_html(
+            '<span style="padding:4px 10px;border-radius:999px;background:#ecfdf3;color:#166534;font-weight:700;">On Track</span>'
+        )
+
+    escalation_state.short_description = "Escalation"
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         if db_field.name == "assigned_to":
