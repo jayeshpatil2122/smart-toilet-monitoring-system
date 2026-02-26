@@ -512,6 +512,14 @@ function WorkerApp() {
     )}`;
   }, [qrSimulationUrl]);
 
+  const completeWorkerLogin = useCallback((workerToken, workerProfile) => {
+    setToken(workerToken);
+    setWorker(workerProfile);
+    localStorage.setItem("worker_token", workerToken);
+    localStorage.setItem("worker_profile", JSON.stringify(workerProfile));
+    setView("dashboard");
+  }, []);
+
   const handleLogin = async (event) => {
     event.preventDefault();
     setAuthLoading(true);
@@ -520,14 +528,26 @@ function WorkerApp() {
     try {
       const response = await axios.post(`${WORKER_API_BASE}/login/`, loginData);
       const { token: workerToken, worker: workerProfile } = response.data;
-      setToken(workerToken);
-      setWorker(workerProfile);
-      localStorage.setItem("worker_token", workerToken);
-      localStorage.setItem("worker_profile", JSON.stringify(workerProfile));
+      completeWorkerLogin(workerToken, workerProfile);
       setMessage("Login successful.");
       setLoginData({ username: "", password: "" });
     } catch (err) {
       setError(err?.response?.data?.detail || "Login failed.");
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleBypassLogin = async () => {
+    setAuthLoading(true);
+    clearAlerts();
+    try {
+      const response = await axios.post(`${WORKER_API_BASE}/bypass/`);
+      const { token: workerToken, worker: workerProfile } = response.data;
+      completeWorkerLogin(workerToken, workerProfile);
+      setMessage("Bypass login successful.");
+    } catch (err) {
+      setError(err?.response?.data?.detail || "Bypass login failed.");
     } finally {
       setAuthLoading(false);
     }
@@ -1026,6 +1046,20 @@ function WorkerApp() {
                 Reset code (dev preview): <b>{resetCodePreview}</b>
               </p>
             )}
+          </div>
+        )}
+
+        {view !== "dashboard" && (
+          <div className="worker-bypass-wrap">
+            <button
+              type="button"
+              className="worker-bypass-btn"
+              onClick={handleBypassLogin}
+              disabled={authLoading}
+            >
+              {authLoading ? "Opening..." : "Bypass"}
+            </button>
+            <p>Skip login/signup and open the worker panel directly.</p>
           </div>
         )}
 
