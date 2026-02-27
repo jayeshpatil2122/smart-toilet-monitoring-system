@@ -92,10 +92,36 @@ const hasCoordinates = (complaint) =>
   Number.isFinite(Number(complaint.toilet_latitude)) &&
   Number.isFinite(Number(complaint.toilet_longitude));
 
+const parseHostName = (value) => {
+  try {
+    return new URL(String(value)).hostname.toLowerCase();
+  } catch (_error) {
+    return "";
+  }
+};
+
 const resolveMediaUrl = (url) => {
   const raw = String(url || "").trim();
   if (!raw) return "";
-  if (/^https?:\/\//i.test(raw)) return raw;
+  if (/^https?:\/\//i.test(raw)) {
+    const sourceHost = parseHostName(raw);
+    const apiHost = parseHostName(API_BASE);
+    if (
+      sourceHost &&
+      apiHost &&
+      (sourceHost === "127.0.0.1" || sourceHost === "localhost") &&
+      sourceHost !== apiHost
+    ) {
+      try {
+        const src = new URL(raw);
+        const base = new URL(API_BASE);
+        return `${base.origin}${src.pathname}${src.search}`;
+      } catch (_error) {
+        return raw;
+      }
+    }
+    return raw;
+  }
   if (raw.startsWith("//")) return `http:${raw}`;
   if (raw.startsWith("/")) return `${API_BASE}${raw}`;
   return `${API_BASE}/${raw}`;

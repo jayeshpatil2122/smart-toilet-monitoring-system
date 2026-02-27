@@ -19,6 +19,10 @@ ALLOWED_HOSTS = [
     if host.strip()
 ]
 
+# Trust reverse-proxy headers on Railway so generated media URLs use correct host/protocol.
+USE_X_FORWARDED_HOST = True
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
 GOOGLE_OAUTH_CLIENT_ID = "".join(
     os.environ.get(
         "GOOGLE_OAUTH_CLIENT_ID",
@@ -157,6 +161,7 @@ STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+os.makedirs(MEDIA_ROOT, exist_ok=True)
 
 
 

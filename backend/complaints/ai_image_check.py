@@ -217,7 +217,16 @@ def _image_quality_check(image, color_order):
 @lru_cache(maxsize=1)
 def _load_yolo_model():
     if YOLO is None:
-        return None, f"Ultralytics YOLO is not available. Install ultralytics. Error: {YOLO_IMPORT_ERROR}"
+        error_text = (
+            "Ultralytics YOLO is not available. Install ultralytics. "
+            f"Error: {YOLO_IMPORT_ERROR}"
+        )
+        if "libxcb.so.1" in str(YOLO_IMPORT_ERROR):
+            error_text += (
+                " Missing Linux shared libraries. "
+                "Install libxcb1/libx11/libgl packages on server."
+            )
+        return None, error_text
 
     weights_path = os.environ.get("YOLO_WEIGHTS_PATH", "yolov8n.pt")
     try:
@@ -309,7 +318,8 @@ def verify_complaint_image(image_path):
             "approved": False,
             "message": (
                 "Rejected: Image libraries are not installed on server. "
-                "Install opencv-python or pillow to enable complaint image AI verification."
+                "Install opencv-python-headless (or opencv-python) or pillow "
+                "to enable complaint image AI verification."
             ),
             "checks": {},
         }

@@ -91,10 +91,16 @@ class ComplaintAdmin(admin.ModelAdmin):
     def image_preview(self, obj):
         if obj.image:
             return format_html(
+                '<div style="display:grid;gap:8px;">'
+                '<img src="{}" alt="Before Image" '
+                'style="max-width:220px;max-height:140px;object-fit:cover;border-radius:8px;'
+                'border:1px solid #93c5fd;background:#f8fbff;" />'
                 '<a href="{}" target="_blank" rel="noopener noreferrer" '
-                'style="display:inline-flex;align-items:center;padding:6px 12px;border-radius:8px;'
-                'background:#eff6ff;border:1px solid #93c5fd;color:#1d4ed8;font-weight:700;'
-                'text-decoration:none;">Open Before Image</a>',
+                'style="display:inline-flex;align-items:center;justify-content:center;padding:6px 12px;'
+                'border-radius:8px;background:#eff6ff;border:1px solid #93c5fd;color:#1d4ed8;'
+                'font-weight:700;text-decoration:none;">Open Before Image</a>'
+                '</div>',
+                obj.image.url,
                 obj.image.url,
             )
         return "No Image"
@@ -104,10 +110,16 @@ class ComplaintAdmin(admin.ModelAdmin):
     def after_image_preview(self, obj):
         if obj.after_image:
             return format_html(
+                '<div style="display:grid;gap:8px;">'
+                '<img src="{}" alt="After Image" '
+                'style="max-width:220px;max-height:140px;object-fit:cover;border-radius:8px;'
+                'border:1px solid #86efac;background:#f7fff9;" />'
                 '<a href="{}" target="_blank" rel="noopener noreferrer" '
-                'style="display:inline-flex;align-items:center;padding:6px 12px;border-radius:8px;'
-                'background:#ecfdf5;border:1px solid #86efac;color:#166534;font-weight:700;'
-                'text-decoration:none;">Open After Image</a>',
+                'style="display:inline-flex;align-items:center;justify-content:center;padding:6px 12px;'
+                'border-radius:8px;background:#ecfdf5;border:1px solid #86efac;color:#166534;'
+                'font-weight:700;text-decoration:none;">Open After Image</a>'
+                '</div>',
+                obj.after_image.url,
                 obj.after_image.url,
             )
         return "No After Image"

@@ -299,7 +299,16 @@ def screen_video_check(video_path):
 @lru_cache(maxsize=1)
 def _load_yolo_model():
     if YOLO is None:
-        return None, f"Ultralytics YOLO is not available. Install ultralytics. Error: {YOLO_IMPORT_ERROR}"
+        error_text = (
+            "Ultralytics YOLO is not available. Install ultralytics. "
+            f"Error: {YOLO_IMPORT_ERROR}"
+        )
+        if "libxcb.so.1" in str(YOLO_IMPORT_ERROR):
+            error_text += (
+                " Missing Linux shared libraries. "
+                "Install libxcb1/libx11/libgl packages on server."
+            )
+        return None, error_text
 
     weights_path = os.environ.get("YOLO_WEIGHTS_PATH", "yolov8n.pt")
     try:
@@ -408,8 +417,9 @@ def verify_video(video_path, reported_duration_sec=None):
         return {
             "approved": False,
             "message": (
-                "Rejected: OpenCV is not installed on server. "
-                "Install opencv-python to enable AI video verification."
+                "Rejected: OpenCV is not available on server. "
+                "Install opencv-python-headless (or opencv-python). "
+                f"Import error: {CV2_IMPORT_ERROR}"
             ),
             "checks": {},
         }

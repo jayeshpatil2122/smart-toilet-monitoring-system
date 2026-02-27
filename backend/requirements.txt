@@ -8,7 +8,7 @@ psycopg2-binary==2.9.11
 
 numpy==2.4.2
 pillow==12.1.1
-opencv-python-headless==4.13.0.92
+opencv-python==4.10.0.84
 ultralytics==8.3.228
 
 # CPU-only PyTorch wheels to avoid Railway CUDA package bloat/timeouts.
