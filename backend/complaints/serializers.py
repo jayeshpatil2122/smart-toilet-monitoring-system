@@ -5,6 +5,7 @@ from .models import Complaint
 class ComplaintSerializer(serializers.ModelSerializer):
     image = serializers.ImageField(use_url=True, required=False, allow_null=True)
     after_image = serializers.ImageField(use_url=True, required=False, allow_null=True)
+    after_video = serializers.FileField(use_url=True, required=False, allow_null=True)
     assigned_to_username = serializers.CharField(source='assigned_to.username', read_only=True)
     submitted_by_username = serializers.CharField(source='submitted_by.username', read_only=True)
     toilet_name = serializers.CharField(source='toilet.name', read_only=True)
@@ -19,6 +20,11 @@ class ComplaintSerializer(serializers.ModelSerializer):
             'description',
             'image',
             'after_image',
+            'after_video',
+            'video_verification_status',
+            'video_verification_reason',
+            'video_verified_at',
+            'video_verification_meta',
             'status',
             'priority',
             'submitted_by',
@@ -38,4 +44,8 @@ class ComplaintSerializer(serializers.ModelSerializer):
             'created_at',
             'resolved_at',
             'resolution_time',
+            'video_verification_status',
+            'video_verification_reason',
+            'video_verified_at',
+            'video_verification_meta',
         )

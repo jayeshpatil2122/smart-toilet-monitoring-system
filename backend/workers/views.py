@@ -1,5 +1,7 @@
 import json
+import os
 import random
+import tempfile
 from datetime import timedelta
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
@@ -24,6 +26,7 @@ from rest_framework.response import Response
 
 from complaints.models import Complaint
 from toilets.models import ToiletAlert
+from .ai_video_check import verify_video
 from .models import WorkerPasswordReset
 from .serializers import (
     PortalForgotPasswordSerializer,
@@ -59,6 +62,14 @@ def _is_portal_user(user):
 
 def _portal_user_queryset():
     return User.objects.filter(groups__name=PORTAL_GROUP_NAME).distinct()
+
+
+def _save_upload_to_temp_file(upload):
+    suffix = os.path.splitext(str(getattr(upload, "name", "")))[1] or ".mp4"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
+        for chunk in upload.chunks():
+            temp_file.write(chunk)
+        return temp_file.name
 
 
 def _get_or_create_bypass_user(
@@ -331,15 +342,61 @@ def worker_update_complaint_status(request, complaint_id):
             status=400,
         )
 
-    after_image = request.FILES.get("after_image")
-    if status_value == "Resolved" and not after_image and not complaint.after_image:
+    after_video = request.FILES.get("after_video")
+    verification_result = None
+
+    if after_video:
+        temp_video_path = None
+        try:
+            temp_video_path = _save_upload_to_temp_file(after_video)
+            verification_result = verify_video(temp_video_path)
+        finally:
+            if temp_video_path and os.path.exists(temp_video_path):
+                os.remove(temp_video_path)
+
+        complaint.video_verification_status = (
+            "Approved" if verification_result.get("approved") else "Rejected"
+        )
+        complaint.video_verification_reason = str(verification_result.get("message", ""))[:255]
+        complaint.video_verification_meta = verification_result
+        complaint.video_verified_at = timezone.now()
+
+        if not verification_result.get("approved"):
+            complaint.save(
+                update_fields=[
+                    "video_verification_status",
+                    "video_verification_reason",
+                    "video_verification_meta",
+                    "video_verified_at",
+                ]
+            )
+            return Response(
+                {
+                    "detail": verification_result.get(
+                        "message", "Video verification failed."
+                    ),
+                    "verification": verification_result,
+                },
+                status=400,
+            )
+
+        after_video.seek(0)
+        complaint.after_video = after_video
+
+    if status_value == "Resolved" and not after_video and not complaint.after_video:
         return Response(
-            {"detail": "Upload AFTER image before marking complaint as resolved."},
+            {"detail": "Upload AFTER live video before marking complaint as resolved."},
             status=400,
         )
 
-    if after_image:
-        complaint.after_image = after_image
+    if status_value == "Resolved" and complaint.after_video:
+        if complaint.video_verification_status != "Approved":
+            return Response(
+                {
+                    "detail": "AFTER video is not AI-approved. Upload a valid live toilet cleaning video."
+                },
+                status=400,
+            )
 
     # First worker who starts/updates an unassigned complaint becomes the owner.
     if complaint.assigned_to_id is None:

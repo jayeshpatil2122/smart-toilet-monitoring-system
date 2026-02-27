@@ -13,6 +13,9 @@ class ComplaintAdmin(admin.ModelAdmin):
         "issue_type",
         "priority",
         "status",
+        "image_preview",
+        "after_video_link",
+        "video_verification_status",
         "escalation_state",
         "assigned_to",
         "created_at",
@@ -24,17 +27,45 @@ class ComplaintAdmin(admin.ModelAdmin):
         "description",
         "assigned_to__username",
     )
-    readonly_fields = ("image_preview",)
+    readonly_fields = (
+        "image_preview",
+        "after_image_preview",
+        "after_video_link",
+        "video_verification_status",
+        "video_verification_reason",
+        "video_verified_at",
+        "video_verification_meta",
+    )
 
     def image_preview(self, obj):
         if obj.image:
             return format_html(
-                '<img src="{}" width="200" style="border-radius:8px;" />',
+                '<img src="{}" width="120" style="border-radius:8px;" />',
                 obj.image.url,
             )
         return "No Image"
 
-    image_preview.short_description = "Image Preview"
+    image_preview.short_description = "Before Image"
+
+    def after_image_preview(self, obj):
+        if obj.after_image:
+            return format_html(
+                '<img src="{}" width="120" style="border-radius:8px;" />',
+                obj.after_image.url,
+            )
+        return "No After Image"
+
+    after_image_preview.short_description = "After Image"
+
+    def after_video_link(self, obj):
+        if not obj.after_video:
+            return "No After Video"
+        return format_html(
+            '<a href="{}" target="_blank" rel="noopener noreferrer">Open After Video</a>',
+            obj.after_video.url,
+        )
+
+    after_video_link.short_description = "After Video"
 
     def escalation_state(self, obj):
         if obj.is_escalated:

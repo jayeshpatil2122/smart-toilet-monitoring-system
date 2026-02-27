@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import WorkerComplaintMap from "./WorkerComplaintMap";
 import "./WorkerApp.css";
@@ -86,6 +86,36 @@ const hasCoordinates = (complaint) =>
   complaint &&
   Number.isFinite(Number(complaint.toilet_latitude)) &&
   Number.isFinite(Number(complaint.toilet_longitude));
+
+const resolveMediaUrl = (url) => {
+  const raw = String(url || "").trim();
+  if (!raw) return "";
+  if (/^https?:\/\//i.test(raw)) return raw;
+  if (raw.startsWith("//")) return `http:${raw}`;
+  if (raw.startsWith("/")) return `${API_BASE}${raw}`;
+  return `${API_BASE}/${raw}`;
+};
+
+const getSupportedRecorderMimeType = () => {
+  if (typeof window === "undefined" || typeof window.MediaRecorder === "undefined") {
+    return "";
+  }
+
+  const candidates = [
+    "video/webm;codecs=vp9,opus",
+    "video/webm;codecs=vp8,opus",
+    "video/webm",
+    "video/mp4",
+  ];
+
+  return (
+    candidates.find((mimeType) =>
+      typeof window.MediaRecorder.isTypeSupported === "function"
+        ? window.MediaRecorder.isTypeSupported(mimeType)
+        : true
+    ) || ""
+  );
+};
 
 const medalLabel = (rank) => {
   if (rank === 1) return "Gold";
@@ -213,7 +243,13 @@ function WorkerApp() {
   const [error, setError] = useState("");
   const [resetCodePreview, setResetCodePreview] = useState("");
   const [activeComplaintId, setActiveComplaintId] = useState(null);
-  const [afterImageFiles, setAfterImageFiles] = useState({});
+  const [afterVideoFiles, setAfterVideoFiles] = useState({});
+  const [afterVideoPreviewUrls, setAfterVideoPreviewUrls] = useState({});
+  const [liveRecorderState, setLiveRecorderState] = useState({
+    complaintId: null,
+    preparing: false,
+    recording: false,
+  });
   const [aiActionsVisible, setAiActionsVisible] = useState({});
   const [imagePreview, setImagePreview] = useState(null);
   const [workerLocation, setWorkerLocation] = useState(null);
@@ -221,6 +257,11 @@ function WorkerApp() {
   const [nowTick, setNowTick] = useState(Date.now());
   const [selectedToiletId, setSelectedToiletId] = useState("");
   const [qrCopied, setQrCopied] = useState(false);
+
+  const liveRecorderVideoRef = useRef(null);
+  const liveRecorderStreamRef = useRef(null);
+  const liveRecorderInstanceRef = useRef(null);
+  const liveRecorderChunksRef = useRef([]);
 
   const [loginData, setLoginData] = useState({ username: "", password: "" });
   const [signupData, setSignupData] = useState({
@@ -246,6 +287,24 @@ function WorkerApp() {
     setMessage("");
     setError("");
   };
+
+  const clearLiveRecorderStream = useCallback(() => {
+    if (liveRecorderInstanceRef.current && liveRecorderInstanceRef.current.state !== "inactive") {
+      liveRecorderInstanceRef.current.stop();
+    }
+    liveRecorderInstanceRef.current = null;
+
+    if (liveRecorderStreamRef.current) {
+      liveRecorderStreamRef.current.getTracks().forEach((track) => track.stop());
+      liveRecorderStreamRef.current = null;
+    }
+
+    if (liveRecorderVideoRef.current) {
+      liveRecorderVideoRef.current.srcObject = null;
+    }
+
+    liveRecorderChunksRef.current = [];
+  }, []);
 
   const fetchAssignedComplaints = useCallback(
     async (currentToken) => {
@@ -394,6 +453,19 @@ function WorkerApp() {
       el.scrollIntoView({ behavior: "smooth", block: "center" });
     }
   }, [activeComplaintId]);
+
+  useEffect(() => {
+    if (!liveRecorderState.complaintId || !liveRecorderStreamRef.current) return;
+    if (!liveRecorderVideoRef.current) return;
+    liveRecorderVideoRef.current.srcObject = liveRecorderStreamRef.current;
+    liveRecorderVideoRef.current.play().catch(() => {});
+  }, [liveRecorderState.complaintId, liveRecorderState.preparing, liveRecorderState.recording]);
+
+  useEffect(() => {
+    return () => {
+      clearLiveRecorderStream();
+    };
+  }, [clearLiveRecorderStream]);
 
   useEffect(() => {
     setQrCopied(false);
@@ -653,7 +725,17 @@ function WorkerApp() {
     setAlerts([]);
     setRanking([]);
     setToilets([]);
-    setAfterImageFiles({});
+    clearLiveRecorderStream();
+    Object.values(afterVideoPreviewUrls).forEach((url) => {
+      if (url) URL.revokeObjectURL(url);
+    });
+    setAfterVideoFiles({});
+    setAfterVideoPreviewUrls({});
+    setLiveRecorderState({
+      complaintId: null,
+      preparing: false,
+      recording: false,
+    });
     setActiveComplaintId(null);
     setWorkerLocation(null);
     setLocationError("");
@@ -667,14 +749,14 @@ function WorkerApp() {
     clearAlerts();
   };
 
-  const updateComplaintStatus = async (complaintId, status, afterImageFile = null) => {
+  const updateComplaintStatus = async (complaintId, status, afterVideoFile = null) => {
     clearAlerts();
     setStatusLoadingId(complaintId);
     try {
       const formData = new FormData();
       formData.append("status", status);
-      if (afterImageFile) {
-        formData.append("after_image", afterImageFile);
+      if (afterVideoFile) {
+        formData.append("after_video", afterVideoFile);
       }
 
       const response = await axios.post(
@@ -686,7 +768,17 @@ function WorkerApp() {
       setComplaints((prev) =>
         prev.map((item) => (item.id === complaintId ? response.data : item))
       );
-      setAfterImageFiles((prev) => {
+      setAfterVideoFiles((prev) => {
+        if (!prev[complaintId]) return prev;
+        const next = { ...prev };
+        delete next[complaintId];
+        return next;
+      });
+      setAfterVideoPreviewUrls((prev) => {
+        const existingUrl = prev[complaintId];
+        if (existingUrl) {
+          URL.revokeObjectURL(existingUrl);
+        }
         const next = { ...prev };
         delete next[complaintId];
         return next;
@@ -730,28 +822,152 @@ function WorkerApp() {
   };
 
   const handleResolved = (complaint) => {
-    const selectedAfterImage = afterImageFiles[complaint.id];
-    if (!selectedAfterImage && !complaint.after_image) {
-      setError("Upload AFTER image before marking this complaint as resolved.");
+    const selectedAfterVideo = afterVideoFiles[complaint.id];
+    if (!selectedAfterVideo && !complaint.after_video) {
+      setError("Upload AFTER live video before marking this complaint as resolved.");
       return;
     }
-    updateComplaintStatus(complaint.id, "Resolved", selectedAfterImage || null);
+    updateComplaintStatus(complaint.id, "Resolved", selectedAfterVideo || null);
   };
 
-  const handleAfterImageSelect = (complaintId, file) => {
-    setAfterImageFiles((prev) => ({
+  const closeLiveRecorder = useCallback(() => {
+    clearLiveRecorderStream();
+    setLiveRecorderState({
+      complaintId: null,
+      preparing: false,
+      recording: false,
+    });
+  }, [clearLiveRecorderStream]);
+
+  const openLiveRecorder = async (complaintId) => {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setError("Live camera is not supported in this browser.");
+      return;
+    }
+
+    clearAlerts();
+    clearLiveRecorderStream();
+    setLiveRecorderState({
+      complaintId,
+      preparing: true,
+      recording: false,
+    });
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" } },
+        audio: true,
+      });
+      liveRecorderStreamRef.current = stream;
+
+      window.requestAnimationFrame(() => {
+        if (!liveRecorderVideoRef.current) return;
+        liveRecorderVideoRef.current.srcObject = stream;
+        liveRecorderVideoRef.current.play().catch(() => {});
+      });
+
+      setLiveRecorderState({
+        complaintId,
+        preparing: false,
+        recording: false,
+      });
+    } catch (_err) {
+      clearLiveRecorderStream();
+      setLiveRecorderState({
+        complaintId: null,
+        preparing: false,
+        recording: false,
+      });
+      setError("Camera permission denied. Enable camera access to record live video.");
+    }
+  };
+
+  const startLiveRecording = () => {
+    const complaintId = liveRecorderState.complaintId;
+    if (!complaintId || !liveRecorderStreamRef.current) {
+      setError("Open live camera first.");
+      return;
+    }
+
+    if (typeof window.MediaRecorder === "undefined") {
+      setError("MediaRecorder is not supported in this browser.");
+      return;
+    }
+
+    const mimeType = getSupportedRecorderMimeType();
+    const recorder = mimeType
+      ? new window.MediaRecorder(liveRecorderStreamRef.current, { mimeType })
+      : new window.MediaRecorder(liveRecorderStreamRef.current);
+
+    liveRecorderChunksRef.current = [];
+    recorder.ondataavailable = (event) => {
+      if (event.data && event.data.size > 0) {
+        liveRecorderChunksRef.current.push(event.data);
+      }
+    };
+    recorder.onstop = () => {
+      const blobType = recorder.mimeType || mimeType || "video/webm";
+      const videoBlob = new Blob(liveRecorderChunksRef.current, { type: blobType });
+      const ext = blobType.includes("mp4") ? "mp4" : "webm";
+      const videoFile = new File(
+        [videoBlob],
+        `after-cleaning-${complaintId}-${Date.now()}.${ext}`,
+        { type: blobType }
+      );
+      const previewUrl = URL.createObjectURL(videoBlob);
+
+      setAfterVideoPreviewUrls((prev) => {
+        const existingUrl = prev[complaintId];
+        if (existingUrl) {
+          URL.revokeObjectURL(existingUrl);
+        }
+        return {
+          ...prev,
+          [complaintId]: previewUrl,
+        };
+      });
+      setAfterVideoFiles((prev) => ({
+        ...prev,
+        [complaintId]: videoFile,
+      }));
+      setMessage(
+        "Live video recorded. Submit the video so AI can verify screen-recording and toilet detection."
+      );
+      setLiveRecorderState((prev) => ({
+        ...prev,
+        recording: false,
+      }));
+    };
+    recorder.onerror = () => {
+      setLiveRecorderState((prev) => ({
+        ...prev,
+        recording: false,
+      }));
+      setError("Recording failed. Please try again.");
+    };
+
+    liveRecorderInstanceRef.current = recorder;
+    recorder.start(800);
+    setLiveRecorderState((prev) => ({
       ...prev,
-      [complaintId]: file || null,
+      recording: true,
     }));
   };
 
-  const handleSubmitAfterPhoto = (complaint) => {
-    const selectedAfterImage = afterImageFiles[complaint.id];
-    if (!selectedAfterImage) {
-      setError("Select an AFTER image first.");
+  const stopLiveRecording = () => {
+    if (!liveRecorderInstanceRef.current) return;
+    if (liveRecorderInstanceRef.current.state !== "inactive") {
+      liveRecorderInstanceRef.current.stop();
+    }
+  };
+
+  const handleSubmitAfterVideo = (complaint) => {
+    const selectedAfterVideo = afterVideoFiles[complaint.id];
+    if (!selectedAfterVideo) {
+      setError("Record a live AFTER video first.");
       return;
     }
-    updateComplaintStatus(complaint.id, complaint.status, selectedAfterImage);
+    updateComplaintStatus(complaint.id, complaint.status, selectedAfterVideo);
   };
 
   const toggleAiActions = (complaintId) => {
@@ -1268,14 +1484,20 @@ function WorkerApp() {
                 <div className="worker-complaint-grid">
                   {filteredComplaints.map((complaint) => {
                     const suggestion = getSmartSuggestion(complaint.issue_type);
-                    const beforeImage = complaint.before_image || complaint.image;
-                    const selectedAfterFile = afterImageFiles[complaint.id];
+                    const beforeImage = resolveMediaUrl(complaint.before_image || complaint.image);
+                    const afterVideo = resolveMediaUrl(complaint.after_video);
+                    const selectedAfterVideoFile = afterVideoFiles[complaint.id];
+                    const selectedAfterVideoPreview = afterVideoPreviewUrls[complaint.id];
+                    const verificationStatus = String(
+                      complaint.video_verification_status || "Not Checked"
+                    );
+                    const verificationReason = String(complaint.video_verification_reason || "");
                     const normalizedStatus = normalizeStatus(complaint.status);
                     const resolved = normalizedStatus === STATUS_RESOLVED;
                     const inProgress = normalizedStatus === STATUS_IN_PROGRESS;
                     const canStartWork = !resolved && statusLoadingId !== complaint.id;
-                    const hasAfterImage = Boolean(complaint.after_image);
-                    const canResolve = inProgress && hasAfterImage && statusLoadingId !== complaint.id;
+                    const hasAfterVideo = Boolean(afterVideo);
+                    const canResolve = inProgress && hasAfterVideo && statusLoadingId !== complaint.id;
                     const sla = getSlaMeta(complaint, nowTick);
                     const showAiActions = Boolean(aiActionsVisible[complaint.id]);
 
@@ -1359,54 +1581,85 @@ function WorkerApp() {
                             )}
                           </div>
                           <div className="worker-image-block">
-                            <h4>After (Worker)</h4>
-                            {complaint.after_image ? (
+                            <h4>After (Worker Live Video)</h4>
+                            {afterVideo ? (
                               <>
-                                <img src={complaint.after_image} alt={`After complaint ${complaint.id}`} />
+                                <video controls preload="metadata">
+                                  <source src={afterVideo} type="video/mp4" />
+                                  <source src={afterVideo} type="video/webm" />
+                                  Your browser does not support video playback.
+                                </video>
                                 <button
                                   type="button"
                                   className="worker-full-image-btn"
-                                  onClick={() =>
-                                    openImagePreview(
-                                      complaint.after_image,
-                                      `After Image - ${complaint.toilet_name}`
-                                    )
-                                  }
+                                  onClick={() => window.open(afterVideo, "_blank", "noopener,noreferrer")}
                                 >
-                                  View Full Image
+                                  Open Full Video
                                 </button>
                               </>
                             ) : (
                               <div className="worker-image-empty">
-                                Upload after-cleaning image to enable resolve.
+                                Record and upload live after-cleaning video to enable resolve.
                               </div>
+                            )}
+                            <div
+                              className={`worker-video-verdict ${
+                                verificationStatus === "Approved"
+                                  ? "approved"
+                                  : verificationStatus === "Rejected"
+                                    ? "rejected"
+                                    : "pending"
+                              }`}
+                            >
+                              AI Verification: {verificationStatus}
+                            </div>
+                            {verificationReason && (
+                              <small className="worker-video-reason">{verificationReason}</small>
                             )}
                           </div>
                         </div>
 
                         <div className="worker-upload-box">
-                          <label htmlFor={`after-image-${complaint.id}`}>Upload AFTER Image</label>
-                          <input
-                            id={`after-image-${complaint.id}`}
-                            type="file"
-                            accept="image/*"
-                            onChange={(event) =>
-                              handleAfterImageSelect(complaint.id, event.target.files?.[0] || null)
-                            }
+                          <label>After Video Verification</label>
+                          <small className="worker-upload-hint">
+                            Live camera recording only. Gallery upload is disabled.
+                          </small>
+                          <button
+                            type="button"
+                            className="worker-open-camera-btn"
+                            onClick={() => openLiveRecorder(complaint.id)}
                             disabled={resolved || statusLoadingId === complaint.id}
-                          />
-                          {selectedAfterFile && <small>Selected: {selectedAfterFile.name}</small>}
+                          >
+                            {liveRecorderState.complaintId === complaint.id
+                              ? liveRecorderState.recording
+                                ? "Recording..."
+                                : liveRecorderState.preparing
+                                  ? "Opening Camera..."
+                                  : "Camera Opened"
+                              : "Open Live Camera"}
+                          </button>
+                          {selectedAfterVideoFile && (
+                            <small>Recorded: {selectedAfterVideoFile.name}</small>
+                          )}
+                          {selectedAfterVideoPreview && (
+                            <video
+                              className="worker-local-video-preview"
+                              controls
+                              preload="metadata"
+                              src={selectedAfterVideoPreview}
+                            />
+                          )}
                           <button
                             type="button"
                             className="worker-submit-photo-btn"
                             disabled={
                               resolved ||
                               statusLoadingId === complaint.id ||
-                              !selectedAfterFile
+                              !selectedAfterVideoFile
                             }
-                            onClick={() => handleSubmitAfterPhoto(complaint)}
+                            onClick={() => handleSubmitAfterVideo(complaint)}
                           >
-                            {statusLoadingId === complaint.id ? "Submitting..." : "Submit After Photo"}
+                            {statusLoadingId === complaint.id ? "Submitting..." : "Submit After Video"}
                           </button>
                         </div>
 
@@ -1812,8 +2065,49 @@ function WorkerApp() {
         )}
 
         <footer className="worker-footer">
-          <p>© {new Date().getFullYear()} {APP_NAME}. All rights reserved.</p>
+          <p>(c) {new Date().getFullYear()} {APP_NAME}. All rights reserved.</p>
         </footer>
+
+        {liveRecorderState.complaintId && (
+          <div className="worker-image-modal" onClick={closeLiveRecorder}>
+            <div
+              className="worker-image-modal-card worker-video-capture-card"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="worker-image-modal-head">
+                <h3>Live Camera Recording (Complaint #{liveRecorderState.complaintId})</h3>
+                <button type="button" onClick={closeLiveRecorder}>
+                  Close
+                </button>
+              </div>
+              <div className="worker-video-capture-body">
+                <video ref={liveRecorderVideoRef} autoPlay muted playsInline />
+                <p className="worker-video-capture-note">
+                  Gallery upload is disabled. Record from live camera only.
+                </p>
+                <div className="worker-video-capture-actions">
+                  <button
+                    type="button"
+                    onClick={startLiveRecording}
+                    disabled={liveRecorderState.preparing || liveRecorderState.recording}
+                  >
+                    {liveRecorderState.preparing ? "Preparing..." : "Start Recording"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={stopLiveRecording}
+                    disabled={!liveRecorderState.recording}
+                  >
+                    Stop Recording
+                  </button>
+                  <button type="button" onClick={closeLiveRecorder}>
+                    Done
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {imagePreview && (
           <div className="worker-image-modal" onClick={closeImagePreview}>

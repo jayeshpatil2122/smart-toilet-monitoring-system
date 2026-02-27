@@ -97,6 +97,32 @@ const getDistanceKm = (lat1, lon1, lat2, lon2) => {
   return EARTH_RADIUS_KM * c;
 };
 
+const normalizeSearchValue = (value) =>
+  String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+
+const tokenizeSearchValue = (value) => normalizeSearchValue(value).split(/\s+/).filter(Boolean);
+
+const getWeightedRating = (average, votes, baseScore = 3.8, minVotes = 5) => {
+  const safeAverage = Number.isFinite(Number(average)) ? Number(average) : 0;
+  const safeVotes = Math.max(0, Number(votes) || 0);
+  return (
+    (safeVotes / (safeVotes + minVotes)) * safeAverage +
+    (minVotes / (safeVotes + minVotes)) * baseScore
+  );
+};
+
+const getRatingConfidenceLabel = (votes) => {
+  const safeVotes = Math.max(0, Number(votes) || 0);
+  if (safeVotes >= 20) return "High confidence";
+  if (safeVotes >= 8) return "Medium confidence";
+  return "Low confidence";
+};
+
 const PortalIcon = ({ type }) => {
   switch (type) {
     case "map":
@@ -233,6 +259,8 @@ function App() {
 
   const voiceRecognitionRef = useRef(null);
   const welcomeSpokenTokenRef = useRef("");
+  const cleanestListRef = useRef(null);
+  const disabledListRef = useRef(null);
 
   const [myComplaints, setMyComplaints] = useState([]);
   const [complaintsLoading, setComplaintsLoading] = useState(false);
@@ -770,9 +798,27 @@ function App() {
 
   const isSearchMatch = (toilet, keyword) => {
     if (!keyword) return false;
-    const haystack = `${toilet.name || ""} ${toilet.location || ""} ${toilet.status || ""}`.toLowerCase();
-    const words = haystack.split(/[\s,.-]+/).filter(Boolean);
-    return words.some((word) => word.startsWith(keyword));
+
+    const normalizedKeyword = normalizeSearchValue(keyword);
+    if (!normalizedKeyword) return false;
+
+    const haystack = normalizeSearchValue(
+      `${toilet.name || ""} ${toilet.location || ""} ${toilet.status || ""}`
+    );
+    if (!haystack) return false;
+
+    if (haystack.includes(normalizedKeyword)) return true;
+
+    const queryTokens = tokenizeSearchValue(normalizedKeyword);
+    if (!queryTokens.length) return false;
+    const haystackTokens = tokenizeSearchValue(haystack);
+
+    return queryTokens.some((queryToken) =>
+      haystackTokens.some(
+        (haystackToken) =>
+          haystackToken.includes(queryToken) || queryToken.includes(haystackToken)
+      )
+    );
   };
 
   const matchingToilets = useMemo(() => {
@@ -862,6 +908,27 @@ function App() {
     cleanestTopToilets,
     disabledFriendlyToiletsByDistance,
     highlightedToiletIds,
+  ]);
+
+  useEffect(() => {
+    if (activeSection !== "map") return;
+    const targetRef =
+      mapFilterMode === "cleanest"
+        ? cleanestListRef
+        : mapFilterMode === "disabled"
+          ? disabledListRef
+          : null;
+    if (!targetRef?.current) return;
+
+    const frameId = window.requestAnimationFrame(() => {
+      targetRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [
+    activeSection,
+    mapFilterMode,
+    cleanestTopToilets.length,
+    disabledFriendlyToiletsByDistance.length,
   ]);
 
   const toiletLookup = useMemo(() => {
@@ -1022,6 +1089,15 @@ function App() {
     setShowAllToilets(false);
     setDetailsOnlyId(null);
     setFocusedToiletId(null);
+
+    const topToilet = cleanestTopToilets[0];
+    if (topToilet) {
+      speakText(
+        `Top cleanest toilet is ${topToilet.name} with cleanliness ${clampPercentage(
+          topToilet.cleanliness
+        )} percent.`
+      );
+    }
   };
 
   const handleShowDisabledFriendlyToilets = async () => {
@@ -1129,7 +1205,7 @@ function App() {
       const recognition = new RecognitionConstructor();
       recognition.lang = "en-IN";
       recognition.interimResults = false;
-      recognition.maxAlternatives = 1;
+      recognition.maxAlternatives = 3;
       voiceRecognitionRef.current = recognition;
     }
 
@@ -1141,19 +1217,33 @@ function App() {
       setMapFilterMessage("Could not capture voice. Please try again.");
     };
     recognition.onresult = (event) => {
-      const spokenText = String(event?.results?.[0]?.[0]?.transcript || "").trim();
+      const transcripts = Array.from(event?.results?.[0] || [])
+        .map((item) => String(item?.transcript || "").trim())
+        .filter(Boolean);
+      const spokenText = transcripts[0] || "";
       setVoiceSearchActive(false);
       if (!spokenText) {
         setMapFilterMessage("No speech detected. Please try again.");
         return;
       }
 
-      setSearchTerm(spokenText);
+      const bestMatchedText =
+        transcripts
+          .map((candidate) => ({
+            candidate,
+            score: toilets.reduce(
+              (count, toilet) => count + (isSearchMatch(toilet, candidate) ? 1 : 0),
+              0
+            ),
+          }))
+          .sort((first, second) => second.score - first.score)?.[0]?.candidate || spokenText;
+
+      setSearchTerm(bestMatchedText);
       setMapFilterMode("default");
       setNearestToiletInfo(null);
       setDisabledFriendlyRankings([]);
       setMapFilterMessage("");
-      speakText(`Searching toilets for ${spokenText}.`);
+      speakText(`Searching toilets for ${bestMatchedText}.`);
     };
 
     if (voiceSearchActive) {
@@ -1250,7 +1340,9 @@ function App() {
             const averageRating = Number(toilet.average_rating || 0);
             const ratingsCount = Number(toilet.ratings_count || 0);
             const myRating = Number(toilet.my_rating || 0);
-            const visibleRating = myRating || Math.round(averageRating);
+            const weightedRating = getWeightedRating(averageRating, ratingsCount);
+            const visibleRating = myRating || Math.round(weightedRating);
+            const ratingConfidence = getRatingConfidenceLabel(ratingsCount);
 
             return (
               <div
@@ -1339,9 +1431,13 @@ function App() {
                   <div className="toilet-rating-head">
                     <span>Citizen Rating</span>
                     <b>
-                      {averageRating.toFixed(1)} / 5 ({ratingsCount})
+                      {weightedRating.toFixed(1)} / 5
                     </b>
                   </div>
+                  <small className="toilet-rating-subline">
+                    Avg {averageRating.toFixed(1)} from {ratingsCount}{" "}
+                    {ratingsCount === 1 ? "rating" : "ratings"} - {ratingConfidence}
+                  </small>
                   <div className="toilet-rating-stars">
                     {RATING_STARS.map((star) => (
                       <button
@@ -1354,7 +1450,7 @@ function App() {
                         disabled={ratingSubmittingToiletId === toilet.id}
                         title={`Rate ${star} star${star > 1 ? "s" : ""}`}
                       >
-                        ★
+                        {"\u2605"}
                       </button>
                     ))}
                   </div>
@@ -1488,7 +1584,7 @@ function App() {
       </section>
 
       {mapFilterMode === "cleanest" && cleanestTopToilets.length > 0 && (
-        <section className="cleanest-panel">
+        <section ref={cleanestListRef} className="cleanest-panel">
           <div className="cleanest-panel-head">
             <h3>Cleanest Toilets</h3>
             <p>Top 5 by cleanliness level</p>
@@ -1521,7 +1617,7 @@ function App() {
       )}
 
       {mapFilterMode === "disabled" && disabledFriendlyToiletsByDistance.length > 0 && (
-        <section className="cleanest-panel disabled-friendly-panel">
+        <section ref={disabledListRef} className="cleanest-panel disabled-friendly-panel">
           <div className="cleanest-panel-head">
             <h3>Disabled-Friendly Toilets</h3>
             <p>Nearest first based on your current location</p>

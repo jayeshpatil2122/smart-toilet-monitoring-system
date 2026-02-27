@@ -49,6 +49,11 @@ class WorkerComplaintSerializer(serializers.ModelSerializer):
             "before_image",
             "image",
             "after_image",
+            "after_video",
+            "video_verification_status",
+            "video_verification_reason",
+            "video_verified_at",
+            "video_verification_meta",
             "status",
             "priority",
             "is_escalated",
@@ -66,6 +71,10 @@ class WorkerComplaintSerializer(serializers.ModelSerializer):
             "created_at",
             "resolved_at",
             "resolution_time",
+            "video_verification_status",
+            "video_verification_reason",
+            "video_verified_at",
+            "video_verification_meta",
         )
 
 

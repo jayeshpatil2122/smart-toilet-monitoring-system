@@ -40,6 +40,11 @@ class Complaint(models.Model):
     description = models.TextField()
     image = models.ImageField(upload_to='complaint_images/', null=True, blank=True)
     after_image = models.ImageField(upload_to='complaint_after_images/', null=True, blank=True)
+    after_video = models.FileField(upload_to='complaint_after_videos/', null=True, blank=True)
+    video_verification_status = models.CharField(max_length=20, default="Not Checked")
+    video_verification_reason = models.CharField(max_length=255, blank=True, default="")
+    video_verified_at = models.DateTimeField(null=True, blank=True)
+    video_verification_meta = models.JSONField(default=dict, blank=True)
 
 
     # Current status of complaint

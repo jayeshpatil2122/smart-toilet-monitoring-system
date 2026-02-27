@@ -1040,10 +1040,10 @@ body::before {
   margin-top: 10px;
   border: 1px solid rgba(148, 220, 255, 0.26);
   border-radius: 12px;
-  background: rgba(8, 23, 36, 0.64);
+  background: linear-gradient(140deg, rgba(9, 25, 39, 0.7), rgba(7, 19, 30, 0.62));
   padding: 10px;
   display: grid;
-  gap: 8px;
+  gap: 7px;
 }
 
 .toilet-rating-head {
@@ -1058,6 +1058,11 @@ body::before {
 .toilet-rating-head b {
   color: #fff2a8;
   font-size: 0.88rem;
+}
+
+.toilet-rating-subline {
+  color: #9ec6db;
+  font-size: 0.76rem;
 }
 
 .toilet-rating-stars {
@@ -1099,6 +1104,7 @@ body::before {
 .toilet-rating-note {
   color: #9dc4d7;
   font-size: 0.78rem;
+  margin-top: -2px;
 }
 
 .submit-btn:disabled {
@@ -1689,6 +1695,7 @@ body::before {
 
 .cleanest-panel {
   margin-top: 14px;
+  scroll-margin-top: 88px;
   border: 1px solid rgba(125, 224, 183, 0.35);
   border-radius: 18px;
   background: rgba(7, 29, 41, 0.65);
