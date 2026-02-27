@@ -591,6 +591,7 @@ body::before {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: 24px;
+  align-items: stretch;
 }
 
 /* Toilet Card - Glass Morphism */
@@ -605,6 +606,9 @@ body::before {
   box-shadow: var(--shadow-card);
   transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
   animation: fade-slide 0.5s ease both;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
 }
 
 .toilet-card::before {
@@ -969,6 +973,7 @@ body::before {
 .toilet-card-actions {
   display: grid;
   gap: 10px;
+  margin-top: auto;
 }
 
 .complaint-btn,
@@ -1036,8 +1041,49 @@ body::before {
   transform: none;
 }
 
-.toilet-rating-box {
+.toilet-rating-shell {
   margin-top: 10px;
+  display: grid;
+  gap: 8px;
+  min-height: 52px;
+}
+
+.toilet-rating-toggle {
+  width: 100%;
+  border: 1px solid rgba(148, 220, 255, 0.32);
+  border-radius: 12px;
+  background: linear-gradient(140deg, rgba(9, 25, 39, 0.7), rgba(7, 19, 30, 0.62));
+  color: #deeff8;
+  padding: 10px 12px;
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: border-color 0.2s ease, transform 0.2s ease;
+}
+
+.toilet-rating-toggle b {
+  color: #fff2a8;
+  font-size: 0.9rem;
+}
+
+.toilet-rating-toggle small {
+  color: #a9d2e7;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.toilet-rating-toggle:hover {
+  transform: translateY(-1px);
+  border-color: rgba(148, 220, 255, 0.52);
+}
+
+.toilet-rating-toggle.open {
+  border-color: rgba(250, 204, 21, 0.45);
+}
+
+.toilet-rating-box {
   border: 1px solid rgba(148, 220, 255, 0.26);
   border-radius: 12px;
   background: linear-gradient(140deg, rgba(9, 25, 39, 0.7), rgba(7, 19, 30, 0.62));
@@ -1161,6 +1207,9 @@ body::before {
     0 25px 50px -12px rgba(0, 0, 0, 0.5),
     0 0 40px rgba(34, 197, 94, 0.2);
   padding: 28px;
+  max-height: min(92vh, 860px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   animation: modal-slide 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -1211,6 +1260,97 @@ body::before {
 /* Form Elements */
 .form-group {
   margin-bottom: 16px;
+}
+
+.complaint-form {
+  display: grid;
+  gap: 12px;
+}
+
+.complaint-form .form-group {
+  margin-bottom: 0;
+}
+
+.complaint-camera-box {
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  background: var(--glass-bg);
+  padding: 10px;
+  display: grid;
+  gap: 10px;
+}
+
+.complaint-camera-top-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.complaint-camera-capture-wrap {
+  display: grid;
+  gap: 8px;
+}
+
+.complaint-camera-live {
+  width: 100%;
+  min-height: 220px;
+  max-height: 42vh;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: #02070d;
+  object-fit: cover;
+}
+
+.complaint-camera-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.complaint-camera-btn {
+  border: none;
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  background: var(--gradient-primary);
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.84rem;
+  cursor: pointer;
+}
+
+.complaint-camera-btn.secondary {
+  background: linear-gradient(135deg, #334155, #1f2937);
+}
+
+.complaint-camera-btn:disabled {
+  opacity: 0.58;
+  cursor: not-allowed;
+}
+
+.complaint-camera-preview-wrap {
+  display: grid;
+  gap: 8px;
+}
+
+.complaint-camera-preview {
+  width: 100%;
+  max-height: 240px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: #07111a;
+  object-fit: cover;
+}
+
+.complaint-camera-hint {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+}
+
+.complaint-form-submit-row {
+  position: sticky;
+  bottom: -1px;
+  z-index: 2;
+  padding-top: 8px;
+  background: linear-gradient(180deg, rgba(15, 15, 35, 0), rgba(15, 15, 35, 0.96) 42%);
 }
 
 .form-label {

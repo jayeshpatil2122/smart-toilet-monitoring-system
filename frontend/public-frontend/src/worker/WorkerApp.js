@@ -18,6 +18,11 @@ const STATUS_PENDING = "pending";
 const STATUS_IN_PROGRESS = "in progress";
 const STATUS_RESOLVED = "resolved";
 const APP_NAME = "SANITRAX";
+const MAX_LIVE_RECORDING_SECONDS = 15;
+const MIN_LIVE_RECORDING_SECONDS = 3;
+const AI_VERIFY_MIN_SECONDS = 8;
+const AI_VERIFY_MAX_SECONDS = 45;
+const AI_VERIFY_MIN_VISIBLE_MS = 1500;
 
 const PRIORITY_ORDER = {
   High: 0,
@@ -102,8 +107,8 @@ const getSupportedRecorderMimeType = () => {
   }
 
   const candidates = [
-    "video/webm;codecs=vp9,opus",
     "video/webm;codecs=vp8,opus",
+    "video/webm;codecs=vp9,opus",
     "video/webm",
     "video/mp4",
   ];
@@ -122,6 +127,13 @@ const medalLabel = (rank) => {
   if (rank === 2) return "Silver";
   if (rank === 3) return "Bronze";
   return `Rank ${rank}`;
+};
+
+const estimateAiVerifySeconds = (durationSec = 0, sizeMb = 0) => {
+  const safeDuration = Math.max(0, Number(durationSec) || 0);
+  const safeSizeMb = Math.max(0, Number(sizeMb) || 0);
+  const estimate = Math.round(6 + safeDuration * 1.2 + safeSizeMb * 0.35);
+  return Math.max(AI_VERIFY_MIN_SECONDS, Math.min(AI_VERIFY_MAX_SECONDS, estimate));
 };
 
 function getDistance(lat1, lon1, lat2, lon2) {
@@ -245,11 +257,19 @@ function WorkerApp() {
   const [activeComplaintId, setActiveComplaintId] = useState(null);
   const [afterVideoFiles, setAfterVideoFiles] = useState({});
   const [afterVideoPreviewUrls, setAfterVideoPreviewUrls] = useState({});
+  const [afterVideoMeta, setAfterVideoMeta] = useState({});
   const [liveRecorderState, setLiveRecorderState] = useState({
     complaintId: null,
     preparing: false,
     recording: false,
   });
+  const [liveRecordingSeconds, setLiveRecordingSeconds] = useState(0);
+  const [aiVerificationState, setAiVerificationState] = useState({
+    complaintId: null,
+    startedAt: 0,
+    estimatedSeconds: 0,
+  });
+  const [aiVerificationElapsedSeconds, setAiVerificationElapsedSeconds] = useState(0);
   const [aiActionsVisible, setAiActionsVisible] = useState({});
   const [imagePreview, setImagePreview] = useState(null);
   const [workerLocation, setWorkerLocation] = useState(null);
@@ -262,6 +282,9 @@ function WorkerApp() {
   const liveRecorderStreamRef = useRef(null);
   const liveRecorderInstanceRef = useRef(null);
   const liveRecorderChunksRef = useRef([]);
+  const liveRecorderDurationTimerRef = useRef(null);
+  const liveRecorderAutoStopTimerRef = useRef(null);
+  const liveRecordingSecondsRef = useRef(0);
 
   const [loginData, setLoginData] = useState({ username: "", password: "" });
   const [signupData, setSignupData] = useState({
@@ -283,12 +306,43 @@ function WorkerApp() {
     [token]
   );
 
+  useEffect(() => {
+    liveRecordingSecondsRef.current = liveRecordingSeconds;
+  }, [liveRecordingSeconds]);
+
+  useEffect(() => {
+    if (!aiVerificationState.complaintId || !aiVerificationState.startedAt) {
+      setAiVerificationElapsedSeconds(0);
+      return undefined;
+    }
+
+    setAiVerificationElapsedSeconds(0);
+    const intervalId = window.setInterval(() => {
+      setAiVerificationElapsedSeconds(
+        Math.max(0, Math.floor((Date.now() - aiVerificationState.startedAt) / 1000))
+      );
+    }, 1000);
+    return () => window.clearInterval(intervalId);
+  }, [aiVerificationState.complaintId, aiVerificationState.startedAt]);
+
   const clearAlerts = () => {
     setMessage("");
     setError("");
   };
 
+  const clearLiveRecorderTimers = useCallback(() => {
+    if (liveRecorderDurationTimerRef.current) {
+      window.clearInterval(liveRecorderDurationTimerRef.current);
+      liveRecorderDurationTimerRef.current = null;
+    }
+    if (liveRecorderAutoStopTimerRef.current) {
+      window.clearTimeout(liveRecorderAutoStopTimerRef.current);
+      liveRecorderAutoStopTimerRef.current = null;
+    }
+  }, []);
+
   const clearLiveRecorderStream = useCallback(() => {
+    clearLiveRecorderTimers();
     if (liveRecorderInstanceRef.current && liveRecorderInstanceRef.current.state !== "inactive") {
       liveRecorderInstanceRef.current.stop();
     }
@@ -304,7 +358,8 @@ function WorkerApp() {
     }
 
     liveRecorderChunksRef.current = [];
-  }, []);
+    setLiveRecordingSeconds(0);
+  }, [clearLiveRecorderTimers]);
 
   const fetchAssignedComplaints = useCallback(
     async (currentToken) => {
@@ -731,11 +786,19 @@ function WorkerApp() {
     });
     setAfterVideoFiles({});
     setAfterVideoPreviewUrls({});
+    setAfterVideoMeta({});
     setLiveRecorderState({
       complaintId: null,
       preparing: false,
       recording: false,
     });
+    setLiveRecordingSeconds(0);
+    setAiVerificationState({
+      complaintId: null,
+      startedAt: 0,
+      estimatedSeconds: 0,
+    });
+    setAiVerificationElapsedSeconds(0);
     setActiveComplaintId(null);
     setWorkerLocation(null);
     setLocationError("");
@@ -752,11 +815,35 @@ function WorkerApp() {
   const updateComplaintStatus = async (complaintId, status, afterVideoFile = null) => {
     clearAlerts();
     setStatusLoadingId(complaintId);
+    const meta = afterVideoMeta[complaintId] || {};
+    const verifyStartedAt = afterVideoFile ? Date.now() : 0;
+
+    if (afterVideoFile) {
+      const fallbackSizeMb = (Number(afterVideoFile.size) || 0) / (1024 * 1024);
+      const estimatedSeconds = estimateAiVerifySeconds(
+        meta.durationSec || 0,
+        meta.sizeMb || fallbackSizeMb
+      );
+      setAiVerificationState({
+        complaintId,
+        startedAt: verifyStartedAt,
+        estimatedSeconds,
+      });
+      setAiVerificationElapsedSeconds(0);
+      setMessage("AI verification started. Please wait while video is being checked.");
+    }
+
     try {
       const formData = new FormData();
       formData.append("status", status);
       if (afterVideoFile) {
         formData.append("after_video", afterVideoFile);
+        if (Number(meta.durationSec) > 0) {
+          formData.append("after_video_duration_sec", String(meta.durationSec));
+        }
+        if (Number(meta.sizeMb) > 0) {
+          formData.append("after_video_size_mb", String(meta.sizeMb));
+        }
       }
 
       const response = await axios.post(
@@ -769,6 +856,12 @@ function WorkerApp() {
         prev.map((item) => (item.id === complaintId ? response.data : item))
       );
       setAfterVideoFiles((prev) => {
+        if (!prev[complaintId]) return prev;
+        const next = { ...prev };
+        delete next[complaintId];
+        return next;
+      });
+      setAfterVideoMeta((prev) => {
         if (!prev[complaintId]) return prev;
         const next = { ...prev };
         delete next[complaintId];
@@ -791,12 +884,37 @@ function WorkerApp() {
     } catch (err) {
       setError(err?.response?.data?.detail || "Failed to update complaint status.");
     } finally {
+      if (afterVideoFile) {
+        const elapsedMs = Math.max(0, Date.now() - verifyStartedAt);
+        if (elapsedMs < AI_VERIFY_MIN_VISIBLE_MS) {
+          await new Promise((resolve) =>
+            window.setTimeout(resolve, AI_VERIFY_MIN_VISIBLE_MS - elapsedMs)
+          );
+        }
+      }
       setStatusLoadingId(null);
+      if (afterVideoFile) {
+        setAiVerificationState({
+          complaintId: null,
+          startedAt: 0,
+          estimatedSeconds: 0,
+        });
+        setAiVerificationElapsedSeconds(0);
+      }
     }
   };
 
-  const handleStartWork = (complaintId) => {
-    updateComplaintStatus(complaintId, "In Progress");
+  const handleStartWork = (complaint) => {
+    const normalizedStatus = normalizeStatus(complaint?.status);
+    if (normalizedStatus === STATUS_RESOLVED) {
+      setError("Complaint is already resolved.");
+      return;
+    }
+    if (normalizedStatus === STATUS_IN_PROGRESS) {
+      setMessage("Work already started for this complaint.");
+      return;
+    }
+    updateComplaintStatus(complaint.id, "In Progress");
   };
 
   const updateAlertStatus = async (alertId, status) => {
@@ -822,6 +940,20 @@ function WorkerApp() {
   };
 
   const handleResolved = (complaint) => {
+    const normalizedStatus = normalizeStatus(complaint.status);
+    if (normalizedStatus !== STATUS_IN_PROGRESS) {
+      setError("Click Start Work first, then upload and verify AFTER video.");
+      return;
+    }
+
+    const verificationStatus = String(
+      complaint.video_verification_status || "Not Checked"
+    ).toLowerCase();
+    if (verificationStatus !== "approved") {
+      setError("AI verification must be Approved before marking complaint as resolved.");
+      return;
+    }
+
     const selectedAfterVideo = afterVideoFiles[complaint.id];
     if (!selectedAfterVideo && !complaint.after_video) {
       setError("Upload AFTER live video before marking this complaint as resolved.");
@@ -847,6 +979,7 @@ function WorkerApp() {
 
     clearAlerts();
     clearLiveRecorderStream();
+    setLiveRecordingSeconds(0);
     setLiveRecorderState({
       complaintId,
       preparing: true,
@@ -856,7 +989,7 @@ function WorkerApp() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: { ideal: "environment" } },
-        audio: true,
+        audio: false,
       });
       liveRecorderStreamRef.current = stream;
 
@@ -899,13 +1032,29 @@ function WorkerApp() {
       ? new window.MediaRecorder(liveRecorderStreamRef.current, { mimeType })
       : new window.MediaRecorder(liveRecorderStreamRef.current);
 
+    clearLiveRecorderTimers();
     liveRecorderChunksRef.current = [];
+    setLiveRecordingSeconds(0);
+    liveRecordingSecondsRef.current = 0;
     recorder.ondataavailable = (event) => {
       if (event.data && event.data.size > 0) {
         liveRecorderChunksRef.current.push(event.data);
       }
     };
     recorder.onstop = () => {
+      clearLiveRecorderTimers();
+      const recordedSeconds = Math.max(0, liveRecordingSecondsRef.current || 0);
+      if (recordedSeconds < MIN_LIVE_RECORDING_SECONDS) {
+        setLiveRecorderState((prev) => ({
+          ...prev,
+          recording: false,
+        }));
+        setError(
+          `Recording too short. Please record at least ${MIN_LIVE_RECORDING_SECONDS} seconds.`
+        );
+        return;
+      }
+
       const blobType = recorder.mimeType || mimeType || "video/webm";
       const videoBlob = new Blob(liveRecorderChunksRef.current, { type: blobType });
       const ext = blobType.includes("mp4") ? "mp4" : "webm";
@@ -930,8 +1079,15 @@ function WorkerApp() {
         ...prev,
         [complaintId]: videoFile,
       }));
+      setAfterVideoMeta((prev) => ({
+        ...prev,
+        [complaintId]: {
+          durationSec: recordedSeconds,
+          sizeMb: Number((videoFile.size / (1024 * 1024)).toFixed(2)),
+        },
+      }));
       setMessage(
-        "Live video recorded. Submit the video so AI can verify screen-recording and toilet detection."
+        `Live video recorded (${recordedSeconds}s). Submit now for AI verification.`
       );
       setLiveRecorderState((prev) => ({
         ...prev,
@@ -939,6 +1095,7 @@ function WorkerApp() {
       }));
     };
     recorder.onerror = () => {
+      clearLiveRecorderTimers();
       setLiveRecorderState((prev) => ({
         ...prev,
         recording: false,
@@ -952,9 +1109,28 @@ function WorkerApp() {
       ...prev,
       recording: true,
     }));
+    liveRecorderDurationTimerRef.current = window.setInterval(() => {
+      setLiveRecordingSeconds((prev) => {
+        const next = Math.min(MAX_LIVE_RECORDING_SECONDS, prev + 1);
+        liveRecordingSecondsRef.current = next;
+        return next;
+      });
+    }, 1000);
+    liveRecorderAutoStopTimerRef.current = window.setTimeout(() => {
+      if (
+        liveRecorderInstanceRef.current &&
+        liveRecorderInstanceRef.current.state !== "inactive"
+      ) {
+        liveRecorderInstanceRef.current.stop();
+        setMessage(
+          `Recording auto-stopped at ${MAX_LIVE_RECORDING_SECONDS} seconds for faster AI verification.`
+        );
+      }
+    }, MAX_LIVE_RECORDING_SECONDS * 1000);
   };
 
   const stopLiveRecording = () => {
+    clearLiveRecorderTimers();
     if (!liveRecorderInstanceRef.current) return;
     if (liveRecorderInstanceRef.current.state !== "inactive") {
       liveRecorderInstanceRef.current.stop();
@@ -962,12 +1138,17 @@ function WorkerApp() {
   };
 
   const handleSubmitAfterVideo = (complaint) => {
+    if (normalizeStatus(complaint.status) !== STATUS_IN_PROGRESS) {
+      setError("Click Start Work first before submitting AFTER video.");
+      return;
+    }
+
     const selectedAfterVideo = afterVideoFiles[complaint.id];
     if (!selectedAfterVideo) {
       setError("Record a live AFTER video first.");
       return;
     }
-    updateComplaintStatus(complaint.id, complaint.status, selectedAfterVideo);
+    updateComplaintStatus(complaint.id, "In Progress", selectedAfterVideo);
   };
 
   const toggleAiActions = (complaintId) => {
@@ -1488,6 +1669,7 @@ function WorkerApp() {
                     const afterVideo = resolveMediaUrl(complaint.after_video);
                     const selectedAfterVideoFile = afterVideoFiles[complaint.id];
                     const selectedAfterVideoPreview = afterVideoPreviewUrls[complaint.id];
+                    const selectedAfterVideoMeta = afterVideoMeta[complaint.id];
                     const verificationStatus = String(
                       complaint.video_verification_status || "Not Checked"
                     );
@@ -1495,11 +1677,38 @@ function WorkerApp() {
                     const normalizedStatus = normalizeStatus(complaint.status);
                     const resolved = normalizedStatus === STATUS_RESOLVED;
                     const inProgress = normalizedStatus === STATUS_IN_PROGRESS;
+                    const isVideoApproved = verificationStatus.toLowerCase() === "approved";
                     const canStartWork = !resolved && statusLoadingId !== complaint.id;
                     const hasAfterVideo = Boolean(afterVideo);
-                    const canResolve = inProgress && hasAfterVideo && statusLoadingId !== complaint.id;
+                    const canOpenCamera =
+                      inProgress && !resolved && statusLoadingId !== complaint.id;
+                    const canSubmitAfterVideo =
+                      inProgress &&
+                      !resolved &&
+                      statusLoadingId !== complaint.id &&
+                      Boolean(selectedAfterVideoFile);
+                    const canResolve =
+                      inProgress &&
+                      hasAfterVideo &&
+                      isVideoApproved &&
+                      statusLoadingId !== complaint.id;
                     const sla = getSlaMeta(complaint, nowTick);
                     const showAiActions = Boolean(aiActionsVisible[complaint.id]);
+                    const isAiVerifying =
+                      statusLoadingId === complaint.id &&
+                      aiVerificationState.complaintId === complaint.id;
+                    const estimatedVerifySeconds =
+                      aiVerificationState.estimatedSeconds || AI_VERIFY_MIN_SECONDS;
+                    const remainingVerifySeconds = Math.max(
+                      0,
+                      estimatedVerifySeconds - aiVerificationElapsedSeconds
+                    );
+                    const verificationLabel = isAiVerifying
+                      ? "Verifying..."
+                      : verificationStatus;
+                    const showLocalAfterPreview = Boolean(
+                      !afterVideo && isAiVerifying && selectedAfterVideoPreview
+                    );
 
                     return (
                       <article
@@ -1582,39 +1791,60 @@ function WorkerApp() {
                           </div>
                           <div className="worker-image-block">
                             <h4>After (Worker Live Video)</h4>
-                            {afterVideo ? (
-                              <>
-                                <video controls preload="metadata">
-                                  <source src={afterVideo} type="video/mp4" />
-                                  <source src={afterVideo} type="video/webm" />
-                                  Your browser does not support video playback.
-                                </video>
-                                <button
-                                  type="button"
-                                  className="worker-full-image-btn"
-                                  onClick={() => window.open(afterVideo, "_blank", "noopener,noreferrer")}
-                                >
-                                  Open Full Video
-                                </button>
-                              </>
-                            ) : (
-                              <div className="worker-image-empty">
-                                Record and upload live after-cleaning video to enable resolve.
-                              </div>
-                            )}
+                            <div className="worker-after-video-shell">
+                              {afterVideo ? (
+                                <>
+                                  <video controls preload="metadata">
+                                    <source src={afterVideo} type="video/mp4" />
+                                    <source src={afterVideo} type="video/webm" />
+                                    Your browser does not support video playback.
+                                  </video>
+                                  <button
+                                    type="button"
+                                    className="worker-full-image-btn"
+                                    onClick={() => window.open(afterVideo, "_blank", "noopener,noreferrer")}
+                                  >
+                                    Open Full Video
+                                  </button>
+                                </>
+                              ) : showLocalAfterPreview ? (
+                                <video controls preload="metadata" src={selectedAfterVideoPreview} />
+                              ) : (
+                                <div className="worker-image-empty">
+                                  Record and upload live after-cleaning video to enable resolve.
+                                </div>
+                              )}
+                              {isAiVerifying && (
+                                <div className="worker-after-video-loader" role="status" aria-live="polite">
+                                  <span className="worker-after-video-spinner" aria-hidden="true"></span>
+                                  <div className="worker-after-video-loader-text">
+                                    <strong>AI is verifying live video...</strong>
+                                    <small>
+                                      Elapsed: {aiVerificationElapsedSeconds}s | Estimated remaining:{" "}
+                                      {remainingVerifySeconds}s
+                                    </small>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
                             <div
                               className={`worker-video-verdict ${
-                                verificationStatus === "Approved"
+                                verificationLabel === "Approved"
                                   ? "approved"
-                                  : verificationStatus === "Rejected"
+                                  : verificationLabel === "Rejected"
                                     ? "rejected"
                                     : "pending"
                               }`}
                             >
-                              AI Verification: {verificationStatus}
+                              AI Verification: {verificationLabel}
                             </div>
-                            {verificationReason && (
+                            {verificationReason && !isAiVerifying && (
                               <small className="worker-video-reason">{verificationReason}</small>
+                            )}
+                            {isAiVerifying && (
+                              <small className="worker-video-reason">
+                                Checking if video is real/live and not fake screen recording.
+                              </small>
                             )}
                           </div>
                         </div>
@@ -1622,17 +1852,18 @@ function WorkerApp() {
                         <div className="worker-upload-box">
                           <label>After Video Verification</label>
                           <small className="worker-upload-hint">
-                            Live camera recording only. Gallery upload is disabled.
+                            Live camera recording only (up to {MAX_LIVE_RECORDING_SECONDS}s). Gallery
+                            upload is disabled.
                           </small>
                           <button
                             type="button"
                             className="worker-open-camera-btn"
                             onClick={() => openLiveRecorder(complaint.id)}
-                            disabled={resolved || statusLoadingId === complaint.id}
+                            disabled={!canOpenCamera}
                           >
                             {liveRecorderState.complaintId === complaint.id
                               ? liveRecorderState.recording
-                                ? "Recording..."
+                                ? `Recording ${liveRecordingSeconds}s / ${MAX_LIVE_RECORDING_SECONDS}s`
                                 : liveRecorderState.preparing
                                   ? "Opening Camera..."
                                   : "Camera Opened"
@@ -1640,6 +1871,12 @@ function WorkerApp() {
                           </button>
                           {selectedAfterVideoFile && (
                             <small>Recorded: {selectedAfterVideoFile.name}</small>
+                          )}
+                          {selectedAfterVideoMeta && (
+                            <small>
+                              Duration: {selectedAfterVideoMeta.durationSec}s | Size:{" "}
+                              {selectedAfterVideoMeta.sizeMb} MB
+                            </small>
                           )}
                           {selectedAfterVideoPreview && (
                             <video
@@ -1649,14 +1886,19 @@ function WorkerApp() {
                               src={selectedAfterVideoPreview}
                             />
                           )}
+                          {isAiVerifying && (
+                            <div className="worker-ai-verify-progress">
+                              <strong>AI verification in progress...</strong>
+                              <small>
+                                Elapsed: {aiVerificationElapsedSeconds}s | Estimated remaining:{" "}
+                                {remainingVerifySeconds}s
+                              </small>
+                            </div>
+                          )}
                           <button
                             type="button"
                             className="worker-submit-photo-btn"
-                            disabled={
-                              resolved ||
-                              statusLoadingId === complaint.id ||
-                              !selectedAfterVideoFile
-                            }
+                            disabled={!canSubmitAfterVideo}
                             onClick={() => handleSubmitAfterVideo(complaint)}
                           >
                             {statusLoadingId === complaint.id ? "Submitting..." : "Submit After Video"}
@@ -1668,11 +1910,13 @@ function WorkerApp() {
                             type="button"
                             className="worker-start-btn"
                             disabled={!canStartWork}
-                            onClick={() => handleStartWork(complaint.id)}
+                            onClick={() => handleStartWork(complaint)}
                           >
                             {statusLoadingId === complaint.id
                               ? "Updating..."
-                              : "Start Work"}
+                              : inProgress
+                                ? "Work Started"
+                                : "Start Work"}
                           </button>
                           <button
                             type="button"
@@ -2084,7 +2328,13 @@ function WorkerApp() {
                 <video ref={liveRecorderVideoRef} autoPlay muted playsInline />
                 <p className="worker-video-capture-note">
                   Gallery upload is disabled. Record from live camera only.
+                  Maximum {MAX_LIVE_RECORDING_SECONDS} seconds.
                 </p>
+                {liveRecorderState.recording && (
+                  <p className="worker-video-capture-timer">
+                    Recording: {liveRecordingSeconds}s / {MAX_LIVE_RECORDING_SECONDS}s
+                  </p>
+                )}
                 <div className="worker-video-capture-actions">
                   <button
                     type="button"

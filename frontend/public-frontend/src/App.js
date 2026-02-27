@@ -217,6 +217,7 @@ function App() {
   const [voiceSearchActive, setVoiceSearchActive] = useState(false);
   const [voiceSearchSupported, setVoiceSearchSupported] = useState(false);
   const [ratingSubmittingToiletId, setRatingSubmittingToiletId] = useState(null);
+  const [expandedRatingToiletIds, setExpandedRatingToiletIds] = useState({});
   const [disabledFriendlyRankings, setDisabledFriendlyRankings] = useState([]);
 
   const [showSplash, setShowSplash] = useState(true);
@@ -701,6 +702,7 @@ function App() {
     setDisabledFriendlyRankings([]);
     setMapFilterMessage("");
     setVoiceSearchActive(false);
+    setExpandedRatingToiletIds({});
     welcomeSpokenTokenRef.current = "";
   };
 
@@ -1298,6 +1300,13 @@ function App() {
     }
   };
 
+  const handleToggleToiletRating = (toiletId) => {
+    setExpandedRatingToiletIds((previous) => ({
+      ...previous,
+      [toiletId]: !previous[toiletId],
+    }));
+  };
+
   const toggleLabel = !showAllToilets
     ? "Show All Toilets"
     : detailsOnlyId !== null
@@ -1343,6 +1352,7 @@ function App() {
             const weightedRating = getWeightedRating(averageRating, ratingsCount);
             const visibleRating = myRating || Math.round(weightedRating);
             const ratingConfidence = getRatingConfidenceLabel(ratingsCount);
+            const isRatingExpanded = Boolean(expandedRatingToiletIds[toilet.id]);
 
             return (
               <div
@@ -1427,36 +1437,51 @@ function App() {
                   </button>
                 </div>
 
-                <div className="toilet-rating-box">
-                  <div className="toilet-rating-head">
+                <div className="toilet-rating-shell">
+                  <button
+                    type="button"
+                    className={`toilet-rating-toggle ${isRatingExpanded ? "open" : ""}`}
+                    onClick={() => handleToggleToiletRating(toilet.id)}
+                    aria-expanded={isRatingExpanded}
+                    aria-controls={`toilet-rating-panel-${toilet.id}`}
+                  >
                     <span>Citizen Rating</span>
-                    <b>
-                      {weightedRating.toFixed(1)} / 5
-                    </b>
-                  </div>
-                  <small className="toilet-rating-subline">
-                    Avg {averageRating.toFixed(1)} from {ratingsCount}{" "}
-                    {ratingsCount === 1 ? "rating" : "ratings"} - {ratingConfidence}
-                  </small>
-                  <div className="toilet-rating-stars">
-                    {RATING_STARS.map((star) => (
-                      <button
-                        key={`${toilet.id}-rating-${star}`}
-                        type="button"
-                        className={`toilet-star-btn ${star <= visibleRating ? "active" : ""} ${
-                          star <= myRating ? "mine" : ""
-                        }`}
-                        onClick={() => handleToiletRatingSubmit(toilet.id, star)}
-                        disabled={ratingSubmittingToiletId === toilet.id}
-                        title={`Rate ${star} star${star > 1 ? "s" : ""}`}
-                      >
-                        {"\u2605"}
-                      </button>
-                    ))}
-                  </div>
-                  <small className="toilet-rating-note">
-                    {myRating > 0 ? `Your rating: ${myRating}/5` : "Tap a star to rate this toilet"}
-                  </small>
+                    <b>{weightedRating.toFixed(1)} / 5</b>
+                    <small>{isRatingExpanded ? "Hide" : "Show"}</small>
+                  </button>
+                  {isRatingExpanded && (
+                    <div id={`toilet-rating-panel-${toilet.id}`} className="toilet-rating-box">
+                      <div className="toilet-rating-head">
+                        <span>Rating Details</span>
+                        <b>
+                          {weightedRating.toFixed(1)} / 5
+                        </b>
+                      </div>
+                      <small className="toilet-rating-subline">
+                        Avg {averageRating.toFixed(1)} from {ratingsCount}{" "}
+                        {ratingsCount === 1 ? "rating" : "ratings"} - {ratingConfidence}
+                      </small>
+                      <div className="toilet-rating-stars">
+                        {RATING_STARS.map((star) => (
+                          <button
+                            key={`${toilet.id}-rating-${star}`}
+                            type="button"
+                            className={`toilet-star-btn ${star <= visibleRating ? "active" : ""} ${
+                              star <= myRating ? "mine" : ""
+                            }`}
+                            onClick={() => handleToiletRatingSubmit(toilet.id, star)}
+                            disabled={ratingSubmittingToiletId === toilet.id}
+                            title={`Rate ${star} star${star > 1 ? "s" : ""}`}
+                          >
+                            {"\u2605"}
+                          </button>
+                        ))}
+                      </div>
+                      <small className="toilet-rating-note">
+                        {myRating > 0 ? `Your rating: ${myRating}/5` : "Tap a star to rate this toilet"}
+                      </small>
+                    </div>
+                  )}
                 </div>
               </div>
             );

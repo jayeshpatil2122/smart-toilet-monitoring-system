@@ -1,3 +1,6 @@
+import os
+import tempfile
+
 from django.db.models import Count
 from rest_framework.authentication import TokenAuthentication
 from rest_framework.authtoken.models import Token
@@ -9,6 +12,7 @@ from rest_framework.decorators import (
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from .ai_image_check import verify_complaint_image
 from .models import Complaint
 from .serializers import ComplaintSerializer
 
@@ -30,6 +34,14 @@ def _resolve_request_user_from_token(request):
     return token_obj.user if token_obj else None
 
 
+def _save_upload_to_temp_file(upload, default_suffix=".jpg"):
+    suffix = os.path.splitext(str(getattr(upload, "name", "")))[1] or default_suffix
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
+        for chunk in upload.chunks():
+            temp_file.write(chunk)
+        return temp_file.name
+
+
 @api_view(["GET"])
 def get_complaints(request):
     complaints = Complaint.objects.all().select_related("toilet", "assigned_to").order_by("-created_at")
@@ -39,6 +51,50 @@ def get_complaints(request):
 
 @api_view(["POST"])
 def create_complaint(request):
+    uploaded_image = request.FILES.get("image")
+    if not uploaded_image:
+        return Response(
+            {"detail": "Capture and upload live toilet image before submitting complaint."},
+            status=400,
+        )
+
+    content_type = str(getattr(uploaded_image, "content_type", "") or "").lower()
+    if content_type and not content_type.startswith("image/"):
+        return Response({"detail": "Invalid file type. Upload a valid image."}, status=400)
+
+    temp_image_path = None
+    verification_result = None
+
+    try:
+        temp_image_path = _save_upload_to_temp_file(uploaded_image, default_suffix=".jpg")
+        try:
+            verification_result = verify_complaint_image(temp_image_path)
+        except Exception as exc:
+            verification_result = {
+                "approved": False,
+                "message": f"Rejected: Complaint image AI verification failed. {exc}",
+                "checks": {},
+            }
+    finally:
+        if temp_image_path and os.path.exists(temp_image_path):
+            os.remove(temp_image_path)
+        try:
+            uploaded_image.seek(0)
+        except Exception:
+            pass
+
+    if not verification_result.get("approved"):
+        return Response(
+            {
+                "detail": verification_result.get(
+                    "message",
+                    "Complaint image verification failed.",
+                ),
+                "verification": verification_result,
+            },
+            status=400,
+        )
+
     serializer = ComplaintSerializer(data=request.data, context={"request": request})
     if serializer.is_valid():
         submitting_user = _resolve_request_user_from_token(request)

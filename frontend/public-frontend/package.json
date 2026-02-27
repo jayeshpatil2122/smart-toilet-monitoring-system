@@ -16,10 +16,14 @@
     "web-vitals": "^2.1.4"
   },
   "scripts": {
-    "start": "react-scripts start",
-    "build": "react-scripts build",
+    "start": "node --max-old-space-size=4096 node_modules/react-scripts/scripts/start.js",
+    "build": "node --max-old-space-size=4096 node_modules/react-scripts/scripts/build.js",
     "test": "react-scripts test",
     "eject": "react-scripts eject"
+  },
+  "overrides": {
+    "webpack": "5.64.4",
+    "webpack-dev-server": "4.6.0"
   },
   "eslintConfig": {
     "extends": [

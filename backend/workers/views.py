@@ -10,7 +10,6 @@ from urllib.request import urlopen
 from django.conf import settings
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import Group, User
-from django.db.models import Q
 from django.utils import timezone
 from rest_framework.authentication import TokenAuthentication
 from rest_framework.authtoken.models import Token
@@ -309,9 +308,7 @@ def worker_my_complaints(request):
         return Response({"detail": "Worker access required."}, status=403)
 
     complaints = (
-        Complaint.objects.filter(
-            Q(assigned_to=request.user) | Q(assigned_to__isnull=True)
-        )
+        Complaint.objects.filter(assigned_to=request.user)
         .select_related("toilet", "assigned_to")
         .order_by("-created_at")
     )
@@ -331,14 +328,32 @@ def worker_update_complaint_status(request, complaint_id):
     if not complaint:
         return Response({"detail": "Complaint not found."}, status=404)
 
-    if complaint.assigned_to_id and complaint.assigned_to_id != request.user.id:
+    if complaint.assigned_to_id != request.user.id:
+        if complaint.assigned_to_id is None:
+            return Response(
+                {"detail": "Complaint is not assigned yet. Ask admin to assign it first."},
+                status=403,
+            )
         return Response({"detail": "Complaint is assigned to another worker."}, status=403)
 
     status_value = request.data.get("status")
-    valid_statuses = {choice[0] for choice in Complaint.STATUS_CHOICES}
+    valid_statuses = {"In Progress", "Resolved"}
     if status_value not in valid_statuses:
         return Response(
             {"detail": f"Invalid status. Allowed values: {', '.join(sorted(valid_statuses))}."},
+            status=400,
+        )
+
+    current_status = str(complaint.status or "")
+    if current_status == "Resolved" and status_value != "Resolved":
+        return Response(
+            {"detail": "Resolved complaint cannot be moved back to working state."},
+            status=400,
+        )
+
+    if status_value == "Resolved" and current_status != "In Progress":
+        return Response(
+            {"detail": "Click Start Work first. Complaint must be In Progress before resolving."},
             status=400,
         )
 
@@ -346,10 +361,14 @@ def worker_update_complaint_status(request, complaint_id):
     verification_result = None
 
     if after_video:
+        reported_duration_sec = request.data.get("after_video_duration_sec")
         temp_video_path = None
         try:
             temp_video_path = _save_upload_to_temp_file(after_video)
-            verification_result = verify_video(temp_video_path)
+            verification_result = verify_video(
+                temp_video_path,
+                reported_duration_sec=reported_duration_sec,
+            )
         finally:
             if temp_video_path and os.path.exists(temp_video_path):
                 os.remove(temp_video_path)
@@ -397,10 +416,6 @@ def worker_update_complaint_status(request, complaint_id):
                 },
                 status=400,
             )
-
-    # First worker who starts/updates an unassigned complaint becomes the owner.
-    if complaint.assigned_to_id is None:
-        complaint.assigned_to = request.user
 
     complaint.status = status_value
     complaint.save()
