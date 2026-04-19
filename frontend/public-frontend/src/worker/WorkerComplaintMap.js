@@ -1,6 +1,7 @@
 import React, { useMemo } from "react";
 import { MapContainer, Marker, Popup, TileLayer } from "react-leaflet";
 import L from "leaflet";
+import { buildMapsDirectionUrl } from "../constants/fixedLocation";
 
 const DEFAULT_CENTER = [20.9333, 77.7513];
 
@@ -102,7 +103,7 @@ function WorkerComplaintMap({ complaints, activeComplaintId, onSelectComplaint }
                   event.preventDefault();
                   event.stopPropagation();
                   window.open(
-                    `https://www.google.com/maps/dir/?api=1&destination=${complaint.toilet_latitude},${complaint.toilet_longitude}`,
+                    buildMapsDirectionUrl(complaint.toilet_latitude, complaint.toilet_longitude),
                     "_blank"
                   );
                 }}

@@ -15,14 +15,20 @@ function ComplaintForm({ toiletId, portalToken = "", onComplaintSubmitted = null
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraFacingMode, setCameraFacingMode] = useState("user");
   const [cameraPreviewUrl, setCameraPreviewUrl] = useState("");
+  const [cameraFallbackEnabled, setCameraFallbackEnabled] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState("");
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
+  const fallbackInputRef = useRef(null);
+  const cameraRequestIdRef = useRef(0);
 
-  const stopCameraStream = () => {
+  const stopCameraStream = (invalidatePending = false) => {
+    if (invalidatePending) {
+      cameraRequestIdRef.current += 1;
+    }
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
@@ -60,12 +66,17 @@ function ComplaintForm({ toiletId, portalToken = "", onComplaintSubmitted = null
   };
 
   const startLiveCamera = async (preferredFacingMode = cameraFacingMode) => {
+    if (cameraBusy) return;
+
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      setMessage("Live camera is not supported in this browser.");
+      setMessage("Live camera is not supported in this browser. Use fallback capture.");
       setMessageType("error");
+      setCameraFallbackEnabled(true);
       return;
     }
 
+    const requestId = cameraRequestIdRef.current + 1;
+    cameraRequestIdRef.current = requestId;
     setCameraFacingMode(preferredFacingMode);
     setCameraBusy(true);
     setCameraReady(false);
@@ -94,16 +105,67 @@ function ComplaintForm({ toiletId, portalToken = "", onComplaintSubmitted = null
         throw new Error("No camera stream available.");
       }
 
+      if (requestId !== cameraRequestIdRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+
       streamRef.current = stream;
+      setCameraFallbackEnabled(false);
       setMessage("Camera opened. Hold device steady, then capture.");
       setMessageType("success");
-    } catch (_error) {
-      setMessage("Unable to access camera. Allow permission and try again.");
+    } catch (error) {
+      if (requestId !== cameraRequestIdRef.current) {
+        return;
+      }
+
+      const errorName = String(error?.name || "");
+      const permissionRelated = [
+        "NotAllowedError",
+        "PermissionDeniedError",
+        "SecurityError",
+      ].includes(errorName);
+      const permissionHint = permissionRelated
+        ? " Camera permission may be blocked by browser/site settings."
+        : "";
+      const secureContextHint = !window.isSecureContext
+        ? " Open the app on HTTPS or localhost."
+        : "";
+      setMessage(
+        `Unable to access live camera.${permissionHint}${secureContextHint} Use fallback capture.`
+      );
       setMessageType("error");
+      setCameraFallbackEnabled(true);
       setCameraOpen(false);
     } finally {
-      setCameraBusy(false);
+      if (requestId === cameraRequestIdRef.current) {
+        setCameraBusy(false);
+      }
     }
+  };
+
+  const openFallbackCapture = () => {
+    setMessage("");
+    setMessageType("");
+    if (fallbackInputRef.current) {
+      fallbackInputRef.current.value = "";
+      fallbackInputRef.current.click();
+    }
+  };
+
+  const handleFallbackCapture = (event) => {
+    const file = event.target.files?.[0] || null;
+    if (!file) return;
+
+    setImage(file);
+    setCameraOpen(false);
+    stopCameraStream(true);
+    setCameraPreviewUrl((previous) => {
+      if (previous) URL.revokeObjectURL(previous);
+      return URL.createObjectURL(file);
+    });
+    setMessage("Image captured from device camera.");
+    setMessageType("success");
   };
 
   const captureFromCamera = () => {
@@ -166,7 +228,7 @@ function ComplaintForm({ toiletId, portalToken = "", onComplaintSubmitted = null
           return URL.createObjectURL(blob);
         });
         setCameraOpen(false);
-        stopCameraStream();
+        stopCameraStream(true);
         setMessage("Live image captured. You can now submit complaint.");
         setMessageType("success");
       },
@@ -222,7 +284,7 @@ function ComplaintForm({ toiletId, portalToken = "", onComplaintSubmitted = null
       setDescription("");
       clearCapturedImage();
       setCameraOpen(false);
-      stopCameraStream();
+      stopCameraStream(true);
       if (typeof onComplaintSubmitted === "function") {
         onComplaintSubmitted(response.data);
       }
@@ -269,7 +331,7 @@ function ComplaintForm({ toiletId, portalToken = "", onComplaintSubmitted = null
 
   useEffect(() => {
     return () => {
-      stopCameraStream();
+      stopCameraStream(true);
       if (cameraPreviewUrl) {
         URL.revokeObjectURL(cameraPreviewUrl);
       }
@@ -339,6 +401,17 @@ function ComplaintForm({ toiletId, portalToken = "", onComplaintSubmitted = null
             </button>
           )}
 
+          {!cameraOpen && cameraFallbackEnabled && (
+            <button
+              type="button"
+              className="complaint-camera-btn secondary"
+              onClick={openFallbackCapture}
+              disabled={submitting}
+            >
+              Capture via Device Camera (Fallback)
+            </button>
+          )}
+
           {cameraOpen && (
             <div className="complaint-camera-capture-wrap">
               <video
@@ -363,7 +436,7 @@ function ComplaintForm({ toiletId, portalToken = "", onComplaintSubmitted = null
                   className="complaint-camera-btn secondary"
                   onClick={() => {
                     setCameraOpen(false);
-                    stopCameraStream();
+                    stopCameraStream(true);
                   }}
                   disabled={submitting}
                 >
@@ -396,6 +469,14 @@ function ComplaintForm({ toiletId, portalToken = "", onComplaintSubmitted = null
           <small className="complaint-camera-hint">
             Gallery upload is disabled. Capture from live camera only.
           </small>
+          <input
+            ref={fallbackInputRef}
+            type="file"
+            accept="image/*"
+            capture={cameraFacingMode === "environment" ? "environment" : "user"}
+            onChange={handleFallbackCapture}
+            style={{ display: "none" }}
+          />
           <canvas ref={canvasRef} style={{ display: "none" }} />
         </div>
       </div>

@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from django.db.models import Avg
 
-from .models import Toilets
+from .models import Toilets, ToiletRating
 
 
 class ToiletSerializer(serializers.ModelSerializer):
@@ -41,12 +41,16 @@ class ToiletSerializer(serializers.ModelSerializer):
             'id',
             'name',
             'location',
+            'toilet_type',
             'is_disabled_friendly',
             'latitude',
             'longitude',
             'usage_count',
             'cleanliness',
             'water_level',
+            'gas_level',
+            'dustbin_level',
+            'motion_detected',
             'health_score',
             'alert_level',
             'status',
@@ -56,3 +60,12 @@ class ToiletSerializer(serializers.ModelSerializer):
             'created_at',
             'updated_at',
         ]
+
+
+class ToiletRatingSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(source="submitted_by.username", default="Anonymous")
+    
+    class Meta:
+        model = ToiletRating
+        fields = ['id', 'rating', 'comment', 'username', 'created_at']
+        read_only_fields = ['id', 'username', 'created_at']

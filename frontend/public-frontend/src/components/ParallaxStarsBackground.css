@@ -1,0 +1,85 @@
+.parallax-stars {
+  position: relative;
+  width: 100%;
+  min-height: 100vh;
+  overflow: hidden;
+  background: #090a0f;
+}
+
+.parallax-stars-atmosphere {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: radial-gradient(ellipse at bottom, #1b2735 0%, #090a0f 100%);
+}
+
+.parallax-stars-layer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  background: transparent;
+  animation-name: parallax-anim-star;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  z-index: 1;
+}
+
+.parallax-stars-layer-copy {
+  position: absolute;
+  top: 2000px;
+  left: 0;
+  width: inherit;
+  height: inherit;
+  background: transparent;
+}
+
+.parallax-stars-layer-small {
+  width: 1px;
+  height: 1px;
+}
+
+.parallax-stars-layer-medium {
+  width: 2px;
+  height: 2px;
+}
+
+.parallax-stars-layer-big {
+  width: 3px;
+  height: 3px;
+}
+
+.parallax-stars-title {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  transform: translateY(-50%);
+  text-align: center;
+  color: #ffffff;
+  font-size: clamp(1.1rem, 2.2vw, 2.1rem);
+  font-weight: 300;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  text-shadow: 0 0 14px rgba(147, 197, 253, 0.35);
+}
+
+.parallax-stars-title span {
+  background: linear-gradient(to bottom, #ffffff 0%, #38495a 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.parallax-stars-content {
+  position: relative;
+  z-index: 3;
+}
+
+@keyframes parallax-anim-star {
+  from {
+    transform: translateY(0px);
+  }
+  to {
+    transform: translateY(-2000px);
+  }
+}

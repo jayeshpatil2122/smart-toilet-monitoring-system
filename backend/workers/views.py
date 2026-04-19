@@ -25,8 +25,9 @@ from rest_framework.response import Response
 
 from complaints.models import Complaint
 from toilets.models import ToiletAlert
+from toilets.views import _sync_all_toilets_from_blynk
 from .ai_video_check import verify_video
-from .models import WorkerPasswordReset
+from .models import WorkerPasswordReset, WorkerProfile
 from .serializers import (
     PortalForgotPasswordSerializer,
     PortalGoogleLoginSerializer,
@@ -49,6 +50,38 @@ PORTAL_BYPASS_USERNAME = "portal_bypass"
 
 def _is_worker(user):
     return user.groups.filter(name=WORKER_GROUP_NAME).exists()
+
+
+def _get_or_create_worker_profile(user):
+    if not user:
+        return None
+    profile, _ = WorkerProfile.objects.get_or_create(
+        user=user,
+        defaults={"role": WorkerProfile.ROLE_SANITATION},
+    )
+    return profile
+
+
+def _resolve_worker_role(user):
+    profile = _get_or_create_worker_profile(user)
+    return profile.role if profile else WorkerProfile.ROLE_SANITATION
+
+
+def _set_worker_role(user, role):
+    profile = _get_or_create_worker_profile(user)
+    target_role = role if role in {WorkerProfile.ROLE_SANITATION, WorkerProfile.ROLE_ENTRY} else WorkerProfile.ROLE_SANITATION
+    if profile.role != target_role:
+        profile.role = target_role
+        profile.save(update_fields=["role", "updated_at"])
+    return profile
+
+
+def _is_sanitation_worker(user):
+    return _is_worker(user) and _resolve_worker_role(user) == WorkerProfile.ROLE_SANITATION
+
+
+def _is_entry_worker(user):
+    return _is_worker(user) and _resolve_worker_role(user) == WorkerProfile.ROLE_ENTRY
 
 
 def _worker_user_queryset():
@@ -162,6 +195,7 @@ def worker_signup(request):
     serializer.is_valid(raise_exception=True)
 
     username = serializer.validated_data["username"]
+    role = serializer.validated_data.get("role", WorkerProfile.ROLE_SANITATION)
     if User.objects.filter(username=username).exists():
         return Response({"detail": "Username already exists."}, status=400)
 
@@ -179,6 +213,7 @@ def worker_signup(request):
 
     worker_group, _ = Group.objects.get_or_create(name=WORKER_GROUP_NAME)
     user.groups.add(worker_group)
+    _set_worker_role(user, role)
 
     return Response({"detail": "Worker account created successfully."}, status=201)
 
@@ -198,6 +233,7 @@ def worker_login(request):
     if not _is_worker(user):
         return Response({"detail": "This account is not registered as a worker."}, status=403)
 
+    worker_role = _resolve_worker_role(user)
     token, _ = Token.objects.get_or_create(user=user)
     return Response(
         {
@@ -207,6 +243,7 @@ def worker_login(request):
                 "username": user.username,
                 "name": f"{user.first_name} {user.last_name}".strip() or user.username,
                 "email": user.email,
+                "role": worker_role,
             },
         }
     )
@@ -221,6 +258,7 @@ def worker_bypass_login(request):
         last_name="Bypass",
         group_name=WORKER_GROUP_NAME,
     )
+    worker_role = _set_worker_role(user, WorkerProfile.ROLE_SANITATION).role
     token, _ = Token.objects.get_or_create(user=user)
     return Response(
         {
@@ -230,6 +268,7 @@ def worker_bypass_login(request):
                 "username": user.username,
                 "name": f"{user.first_name} {user.last_name}".strip() or user.username,
                 "email": user.email,
+                "role": worker_role,
             },
         }
     )
@@ -304,9 +343,10 @@ def worker_reset_password(request):
 @authentication_classes([TokenAuthentication])
 @permission_classes([IsAuthenticated])
 def worker_my_complaints(request):
-    if not _is_worker(request.user):
-        return Response({"detail": "Worker access required."}, status=403)
+    if not _is_sanitation_worker(request.user):
+        return Response({"detail": "Sanitation worker access required."}, status=403)
 
+    _sync_all_toilets_from_blynk()
     complaints = (
         Complaint.objects.filter(assigned_to=request.user)
         .select_related("toilet", "assigned_to")
@@ -321,8 +361,8 @@ def worker_my_complaints(request):
 @permission_classes([IsAuthenticated])
 @parser_classes([MultiPartParser, FormParser, JSONParser])
 def worker_update_complaint_status(request, complaint_id):
-    if not _is_worker(request.user):
-        return Response({"detail": "Worker access required."}, status=403)
+    if not _is_sanitation_worker(request.user):
+        return Response({"detail": "Sanitation worker access required."}, status=403)
 
     complaint = Complaint.objects.filter(id=complaint_id).select_related("assigned_to").first()
     if not complaint:
@@ -427,9 +467,10 @@ def worker_update_complaint_status(request, complaint_id):
 @authentication_classes([TokenAuthentication])
 @permission_classes([IsAuthenticated])
 def worker_my_alerts(request):
-    if not _is_worker(request.user):
-        return Response({"detail": "Worker access required."}, status=403)
+    if not _is_sanitation_worker(request.user):
+        return Response({"detail": "Sanitation worker access required."}, status=403)
 
+    _sync_all_toilets_from_blynk()
     alerts = (
         ToiletAlert.objects.filter(assigned_to=request.user)
         .select_related("toilet", "assigned_to", "resolved_by")
@@ -443,8 +484,8 @@ def worker_my_alerts(request):
 @authentication_classes([TokenAuthentication])
 @permission_classes([IsAuthenticated])
 def worker_update_alert_status(request, alert_id):
-    if not _is_worker(request.user):
-        return Response({"detail": "Worker access required."}, status=403)
+    if not _is_sanitation_worker(request.user):
+        return Response({"detail": "Sanitation worker access required."}, status=403)
 
     alert = (
         ToiletAlert.objects.filter(id=alert_id, assigned_to=request.user)

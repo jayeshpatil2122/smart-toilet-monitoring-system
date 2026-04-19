@@ -14,3 +14,23 @@ class WorkerPasswordReset(models.Model):
 
     def __str__(self):
         return f"{self.user.username} - {self.code}"
+
+
+class WorkerProfile(models.Model):
+    ROLE_SANITATION = "Sanitation"
+    ROLE_ENTRY = "Entry"
+    ROLE_CHOICES = [
+        (ROLE_SANITATION, ROLE_SANITATION),
+        (ROLE_ENTRY, ROLE_ENTRY),
+    ]
+
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="worker_profile")
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default=ROLE_SANITATION)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["user__username"]
+
+    def __str__(self):
+        return f"{self.user.username} - {self.role}"

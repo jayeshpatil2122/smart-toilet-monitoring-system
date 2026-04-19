@@ -1,0 +1,11 @@
+{% extends "admin/change_list.html" %}
+
+{% block object-tools-items %}
+  <li>
+    <a href="{% url 'admin:complaints_complaint_workers_history' %}" class="historylink">
+      Workers History
+    </a>
+  </li>
+  {{ block.super }}
+{% endblock %}
+

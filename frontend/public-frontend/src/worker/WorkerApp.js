@@ -1,6 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import WorkerComplaintMap from "./WorkerComplaintMap";
+import ParallaxStarsBackground from "../components/ParallaxStarsBackground";
+import PaymentWorkerApp from "./PaymentWorkerApp";
+import { FIXED_LOCATION, buildMapsDirectionUrl } from "../constants/fixedLocation";
 import "./WorkerApp.css";
 
 const API_BASE = (
@@ -23,6 +26,11 @@ const MIN_LIVE_RECORDING_SECONDS = 3;
 const AI_VERIFY_MIN_SECONDS = 8;
 const AI_VERIFY_MAX_SECONDS = 45;
 const AI_VERIFY_MIN_VISIBLE_MS = 1500;
+const GAS_HIGH_THRESHOLD = 70;
+const WORKER_MODE_SANITATION = "sanitation";
+const WORKER_MODE_ENTRY = "entry";
+const WORKER_ROLE_SANITATION = "Sanitation";
+const WORKER_ROLE_ENTRY = "Entry";
 
 const PRIORITY_ORDER = {
   High: 0,
@@ -203,6 +211,13 @@ const clampMetric = (value) => {
   return Math.max(0, Math.min(100, Math.round(num)));
 };
 
+const getSafeGasValue = (value) => {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : 0;
+};
+
+const formatGasValue = (value) => getSafeGasValue(value).toFixed(1);
+
 const getToiletMetricTone = (value) => {
   const safe = clampMetric(value);
   if (safe < 40) return "critical";
@@ -216,6 +231,22 @@ const getToiletStatusClass = (status) => {
   if (normalized === "moderate") return "moderate";
   return "good";
 };
+
+const getToiletTypeSymbols = (toiletType) => {
+  const normalized = String(toiletType || "").trim().toLowerCase();
+  if (normalized === "male") return "♂";
+  if (normalized === "female") return "♀";
+  return "♂ ♀";
+};
+
+const resolveWorkerModeFromRole = (role) =>
+  role === WORKER_ROLE_ENTRY ? WORKER_MODE_ENTRY : WORKER_MODE_SANITATION;
+
+const resolveWorkerRoleFromMode = (mode) =>
+  mode === WORKER_MODE_ENTRY ? WORKER_ROLE_ENTRY : WORKER_ROLE_SANITATION;
+
+const resolveWorkerDashboardView = (role) =>
+  role === WORKER_ROLE_ENTRY ? "payment_dashboard" : "dashboard";
 
 const getSlaMeta = (complaint, nowTick) => {
   if (!complaint || normalizeStatus(complaint.status) === STATUS_RESOLVED) {
@@ -257,12 +288,27 @@ const getSlaMeta = (complaint, nowTick) => {
 
 function WorkerApp() {
   const [view, setView] = useState("login");
+  const [workerMode, setWorkerMode] = useState(() =>
+    window.location.pathname.includes("/payment-dashboard")
+      ? WORKER_MODE_ENTRY
+      : WORKER_MODE_SANITATION
+  );
   const [dashboardTab, setDashboardTab] = useState(DASHBOARD_TAB_ASSIGNED);
   const [complaintStatusFilter, setComplaintStatusFilter] = useState("pending");
   const [token, setToken] = useState(localStorage.getItem("worker_token") || "");
   const [worker, setWorker] = useState(() => {
     const raw = localStorage.getItem("worker_profile");
-    return raw ? JSON.parse(raw) : null;
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object") return null;
+      return {
+        ...parsed,
+        role: parsed.role || WORKER_ROLE_SANITATION,
+      };
+    } catch (_error) {
+      return null;
+    }
   });
 
   const [complaints, setComplaints] = useState([]);
@@ -311,6 +357,7 @@ function WorkerApp() {
   const liveRecorderDurationTimerRef = useRef(null);
   const liveRecorderAutoStopTimerRef = useRef(null);
   const liveRecordingSecondsRef = useRef(0);
+  const liveRecorderOpenRequestIdRef = useRef(0);
 
   const [loginData, setLoginData] = useState({ username: "", password: "" });
   const [signupData, setSignupData] = useState({
@@ -355,6 +402,14 @@ function WorkerApp() {
     setMessage("");
     setError("");
   };
+
+  const syncWorkerRouteByRole = useCallback((role) => {
+    const targetPath =
+      role === WORKER_ROLE_ENTRY ? "/worker/payment-dashboard" : "/worker/dashboard";
+    if (window.location.pathname !== targetPath) {
+      window.history.replaceState({}, "", targetPath);
+    }
+  }, []);
 
   const clearLiveRecorderTimers = useCallback(() => {
     if (liveRecorderDurationTimerRef.current) {
@@ -459,14 +514,31 @@ function WorkerApp() {
   }, []);
 
   useEffect(() => {
-    if (token) {
-      setView("dashboard");
-      fetchAssignedComplaints(token);
-      fetchAssignedAlerts(token);
-      fetchRanking();
-      fetchToilets();
+    if (!token) return;
+
+    const activeRole = worker?.role || WORKER_ROLE_SANITATION;
+    const activeMode = resolveWorkerModeFromRole(activeRole);
+    setWorkerMode(activeMode);
+    setView(resolveWorkerDashboardView(activeRole));
+    syncWorkerRouteByRole(activeRole);
+
+    if (activeRole === WORKER_ROLE_ENTRY) {
+      return;
     }
-  }, [token, fetchAssignedComplaints, fetchAssignedAlerts, fetchRanking, fetchToilets]);
+
+    fetchAssignedComplaints(token);
+    fetchAssignedAlerts(token);
+    fetchRanking();
+    fetchToilets();
+  }, [
+    token,
+    worker?.role,
+    fetchAssignedComplaints,
+    fetchAssignedAlerts,
+    fetchRanking,
+    fetchToilets,
+    syncWorkerRouteByRole,
+  ]);
 
   useEffect(() => {
     if (view === "dashboard" && dashboardTab === DASHBOARD_TAB_RANKING && ranking.length === 0) {
@@ -503,28 +575,11 @@ function WorkerApp() {
 
   useEffect(() => {
     if (view !== "dashboard") return;
-    if (!navigator.geolocation) {
-      setLocationError("Geolocation is not supported by this browser.");
-      return;
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setWorkerLocation({
-          lat: position.coords.latitude,
-          lng: position.coords.longitude,
-        });
-        setLocationError("");
-      },
-      () => {
-        setLocationError("Could not read worker location. Enable location for work-order sorting.");
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 15000,
-        maximumAge: 120000,
-      }
-    );
+    setWorkerLocation({
+      lat: FIXED_LOCATION.latitude,
+      lng: FIXED_LOCATION.longitude,
+    });
+    setLocationError("");
   }, [view]);
 
   useEffect(() => {
@@ -544,6 +599,7 @@ function WorkerApp() {
 
   useEffect(() => {
     return () => {
+      liveRecorderOpenRequestIdRef.current += 1;
       clearLiveRecorderStream();
     };
   }, [clearLiveRecorderStream]);
@@ -704,12 +760,19 @@ function WorkerApp() {
   }, [qrSimulationUrl]);
 
   const completeWorkerLogin = useCallback((workerToken, workerProfile) => {
+    const normalizedRole = workerProfile?.role || WORKER_ROLE_SANITATION;
+    const normalizedProfile = {
+      ...workerProfile,
+      role: normalizedRole,
+    };
     setToken(workerToken);
-    setWorker(workerProfile);
+    setWorker(normalizedProfile);
+    setWorkerMode(resolveWorkerModeFromRole(normalizedRole));
     localStorage.setItem("worker_token", workerToken);
-    localStorage.setItem("worker_profile", JSON.stringify(workerProfile));
-    setView("dashboard");
-  }, []);
+    localStorage.setItem("worker_profile", JSON.stringify(normalizedProfile));
+    setView(resolveWorkerDashboardView(normalizedRole));
+    syncWorkerRouteByRole(normalizedRole);
+  }, [syncWorkerRouteByRole]);
 
   const handleLogin = async (event) => {
     event.preventDefault();
@@ -749,8 +812,12 @@ function WorkerApp() {
     setAuthLoading(true);
     clearAlerts();
     try {
-      await axios.post(`${WORKER_API_BASE}/signup/`, signupData);
-      setMessage("Signup successful. Please login.");
+      const role = resolveWorkerRoleFromMode(workerMode);
+      await axios.post(`${WORKER_API_BASE}/signup/`, {
+        ...signupData,
+        role,
+      });
+      setMessage(`${role} worker signup successful. Please login.`);
       setSignupData({
         username: "",
         email: "",
@@ -806,6 +873,7 @@ function WorkerApp() {
     setAlerts([]);
     setRanking([]);
     setToilets([]);
+    liveRecorderOpenRequestIdRef.current += 1;
     clearLiveRecorderStream();
     Object.values(afterVideoPreviewUrls).forEach((url) => {
       if (url) URL.revokeObjectURL(url);
@@ -833,8 +901,10 @@ function WorkerApp() {
     setSelectedToiletId("");
     setQrCopied(false);
     setComplaintStatusFilter("pending");
+    setWorkerMode(WORKER_MODE_SANITATION);
     setView("login");
     setDashboardTab(DASHBOARD_TAB_ASSIGNED);
+    window.history.replaceState({}, "", "/worker");
     clearAlerts();
   };
 
@@ -989,6 +1059,7 @@ function WorkerApp() {
   };
 
   const closeLiveRecorder = useCallback(() => {
+    liveRecorderOpenRequestIdRef.current += 1;
     clearLiveRecorderStream();
     setLiveRecorderState({
       complaintId: null,
@@ -998,11 +1069,21 @@ function WorkerApp() {
   }, [clearLiveRecorderStream]);
 
   const openLiveRecorder = async (complaintId) => {
+    if (liveRecorderState.preparing) return;
+    if (
+      liveRecorderState.complaintId === complaintId &&
+      liveRecorderStreamRef.current
+    ) {
+      return;
+    }
+
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       setError("Live camera is not supported in this browser.");
       return;
     }
 
+    const requestId = liveRecorderOpenRequestIdRef.current + 1;
+    liveRecorderOpenRequestIdRef.current = requestId;
     clearAlerts();
     clearLiveRecorderStream();
     setLiveRecordingSeconds(0);
@@ -1017,6 +1098,12 @@ function WorkerApp() {
         video: { facingMode: { ideal: "environment" } },
         audio: false,
       });
+
+      if (requestId !== liveRecorderOpenRequestIdRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+
       liveRecorderStreamRef.current = stream;
 
       window.requestAnimationFrame(() => {
@@ -1031,6 +1118,10 @@ function WorkerApp() {
         recording: false,
       });
     } catch (_err) {
+      if (requestId !== liveRecorderOpenRequestIdRef.current) {
+        return;
+      }
+
       clearLiveRecorderStream();
       setLiveRecorderState({
         complaintId: null,
@@ -1198,10 +1289,7 @@ function WorkerApp() {
       setError("This item does not have valid toilet coordinates.");
       return;
     }
-    window.open(
-      `https://www.google.com/maps/dir/?api=1&destination=${complaint.toilet_latitude},${complaint.toilet_longitude}`,
-      "_blank"
-    );
+    window.open(buildMapsDirectionUrl(complaint.toilet_latitude, complaint.toilet_longitude), "_blank");
   };
 
   const upsertToiletState = useCallback((updatedToilet) => {
@@ -1336,49 +1424,89 @@ function WorkerApp() {
     }
   }, [qrSimulationUrl]);
 
+  const handleSwitchToCitizenPortal = () => {
+    window.location.assign("/");
+  };
+
+  const handleSwitchToWorkerPortal = () => {
+    if (!window.location.pathname.startsWith("/worker")) {
+      window.location.assign("/worker");
+    }
+  };
+
   const renderAuthNavigation = () => (
-    <div className="worker-nav">
-      <button
-        type="button"
-        className={`worker-nav-btn ${view === "login" ? "active" : ""}`}
-        onClick={() => setView("login")}
-      >
-        Login
-      </button>
-      <button
-        type="button"
-        className={`worker-nav-btn ${view === "signup" ? "active" : ""}`}
-        onClick={() => setView("signup")}
-      >
-        Signup
-      </button>
-      <button
-        type="button"
-        className={`worker-nav-btn ${view === "forgot" ? "active" : ""}`}
-        onClick={() => setView("forgot")}
-      >
-        Forgot Password
-      </button>
-    </div>
+    <>
+      <div className="worker-auth-switch">
+        <button type="button" onClick={handleSwitchToCitizenPortal}>
+          Citizen Login
+        </button>
+        <button type="button" className="active" onClick={handleSwitchToWorkerPortal}>
+          Worker Login
+        </button>
+      </div>
+      <div className="worker-role-toggle">
+        <button
+          type="button"
+          className={`worker-role-btn ${workerMode === WORKER_MODE_SANITATION ? "active" : ""}`}
+          onClick={() => setWorkerMode(WORKER_MODE_SANITATION)}
+        >
+          Sanitation Worker Login
+        </button>
+        <button
+          type="button"
+          className={`worker-role-btn ${workerMode === WORKER_MODE_ENTRY ? "active" : ""}`}
+          onClick={() => setWorkerMode(WORKER_MODE_ENTRY)}
+        >
+          Payment Worker Login
+        </button>
+      </div>
+      <div className="worker-nav">
+        <button
+          type="button"
+          className={`worker-nav-btn ${view === "login" ? "active" : ""}`}
+          onClick={() => setView("login")}
+        >
+          Login
+        </button>
+        <button
+          type="button"
+          className={`worker-nav-btn ${view === "signup" ? "active" : ""}`}
+          onClick={() => setView("signup")}
+        >
+          Signup
+        </button>
+        <button
+          type="button"
+          className={`worker-nav-btn ${view === "forgot" ? "active" : ""}`}
+          onClick={() => setView("forgot")}
+        >
+          Forgot Password
+        </button>
+      </div>
+    </>
   );
 
-  const isAuthView = view !== "dashboard";
+  const isDashboardView = view === "dashboard" || view === "payment_dashboard";
+  const isAuthView = !isDashboardView;
 
   return (
     <div className={`worker-shell ${isAuthView ? "worker-shell-auth" : ""}`}>
+      {isAuthView && <ParallaxStarsBackground className="worker-auth-stars" speed={1.1} />}
       <div className={`worker-card ${isAuthView ? "worker-card-auth" : ""}`}>
         <div className={`worker-header ${isAuthView ? "worker-header-auth" : ""}`}>
           {isAuthView && <span className="worker-auth-kicker">{APP_NAME} Workforce</span>}
           <h1>{isAuthView ? `${APP_NAME} Worker Access` : `${APP_NAME} Worker Panel`}</h1>
           <p>
             {isAuthView
-              ? "Secure login for complaint operations and live field updates."
+              ? workerMode === WORKER_MODE_ENTRY
+                ? "Payment entry access for code/QR verification and revenue tracking."
+                : "Secure login for complaint operations and live field updates."
               : "Assigned complaints and updates"}
           </p>
-          {view === "dashboard" && worker && (
+          {isDashboardView && worker && (
             <div className="worker-profile">
               <span>
-                Logged in as <b>{worker.username}</b>
+                Logged in as <b>{worker.username}</b> ({worker.role || WORKER_ROLE_SANITATION})
               </span>
               <button type="button" className="worker-logout-btn" onClick={handleLogout}>
                 Logout
@@ -1390,10 +1518,13 @@ function WorkerApp() {
         {message && <div className="worker-alert success">{message}</div>}
         {error && <div className="worker-alert error">{error}</div>}
 
-        {view !== "dashboard" && renderAuthNavigation()}
+        {isAuthView && renderAuthNavigation()}
 
         {view === "login" && (
           <form onSubmit={handleLogin} className="worker-form">
+            <h3 className="worker-auth-form-title">
+              {workerMode === WORKER_MODE_ENTRY ? "Payment Worker Login" : "Sanitation Worker Login"}
+            </h3>
             <label>Username</label>
             <input
               type="text"
@@ -1411,13 +1542,16 @@ function WorkerApp() {
             />
 
             <button type="submit" disabled={authLoading}>
-              {authLoading ? "Logging in..." : "Login"}
+              {authLoading ? "Logging in..." : workerMode === WORKER_MODE_ENTRY ? "Login as Payment Worker" : "Login as Sanitation Worker"}
             </button>
           </form>
         )}
 
         {view === "signup" && (
           <form onSubmit={handleSignup} className="worker-form">
+            <h3 className="worker-auth-form-title">
+              {workerMode === WORKER_MODE_ENTRY ? "Payment Worker Signup" : "Sanitation Worker Signup"}
+            </h3>
             <label>Username</label>
             <input
               type="text"
@@ -1456,7 +1590,7 @@ function WorkerApp() {
             />
 
             <button type="submit" disabled={authLoading}>
-              {authLoading ? "Creating..." : "Create Worker Account"}
+              {authLoading ? "Creating..." : workerMode === WORKER_MODE_ENTRY ? "Signup as Payment Worker" : "Signup as Sanitation Worker"}
             </button>
           </form>
         )}
@@ -1511,7 +1645,7 @@ function WorkerApp() {
           </div>
         )}
 
-        {view !== "dashboard" && (
+        {isAuthView && (
           <div className="worker-bypass-wrap">
             <button
               type="button"
@@ -1523,6 +1657,10 @@ function WorkerApp() {
             </button>
             <p>Skip login/signup and open the worker panel directly.</p>
           </div>
+        )}
+
+        {view === "payment_dashboard" && (
+          <PaymentWorkerApp token={token} worker={worker} onLogout={handleLogout} />
         )}
 
         {view === "dashboard" && (
@@ -1635,7 +1773,9 @@ function WorkerApp() {
                     <h3>Suggested Work Order</h3>
                     <p>
                       {workerLocation
-                        ? `Location locked at ${workerLocation.lat.toFixed(4)}, ${workerLocation.lng.toFixed(4)}`
+                        ? `Location locked at ${FIXED_LOCATION.label}: ${workerLocation.lat.toFixed(
+                            4
+                          )}, ${workerLocation.lng.toFixed(4)}`
                         : "Waiting for worker location..."}
                     </p>
                   </div>
@@ -1707,7 +1847,12 @@ function WorkerApp() {
                     const canStartWork = !resolved && statusLoadingId !== complaint.id;
                     const hasAfterVideo = Boolean(afterVideo);
                     const canOpenCamera =
-                      inProgress && !resolved && statusLoadingId !== complaint.id;
+                      inProgress &&
+                      !resolved &&
+                      statusLoadingId !== complaint.id &&
+                      !liveRecorderState.preparing &&
+                      !liveRecorderState.recording &&
+                      liveRecorderState.complaintId !== complaint.id;
                     const canSubmitAfterVideo =
                       inProgress &&
                       !resolved &&
@@ -1766,6 +1911,23 @@ function WorkerApp() {
                         <p>
                           <b>Location:</b> {complaint.toilet_location}
                         </p>
+                        <p>
+                          <b>Toilet Type:</b> {getToiletTypeSymbols(complaint.toilet_type)}{" "}
+                          {complaint.toilet_type || "Both"}
+                        </p>
+                        <p>
+                          <b>Toilet Status:</b> {complaint.toilet_status || "-"}
+                        </p>
+                        <div className="worker-sensor-row">
+                          <span>Gas: {formatGasValue(complaint.toilet_gas_level)}</span>
+                          <span>Dustbin: {clampMetric(complaint.toilet_dustbin_level)}%</span>
+                          <span>Water: {clampMetric(complaint.toilet_water_level)}%</span>
+                          <span>People: {Number(complaint.toilet_usage_count || 0)}</span>
+                        </div>
+                        {(getSafeGasValue(complaint.toilet_gas_level) > GAS_HIGH_THRESHOLD ||
+                          complaint.fan_on_alert) && (
+                          <div className="worker-fan-alert">Fan ON Alert (High Gas)</div>
+                        )}
                         <p>
                           <b>Description:</b> {complaint.description}
                         </p>
@@ -1976,7 +2138,7 @@ function WorkerApp() {
               <section className="worker-alerts-panel">
                 <div className="worker-section-head">
                   <h3>Assigned Toilet Alerts</h3>
-                  <p>Low water or low cleanliness alerts assigned to you.</p>
+                  <p>Low water, dustbin full, and high gas alerts assigned to you.</p>
                 </div>
 
                 {loadingAlerts && <p className="worker-empty">Loading alerts...</p>}
@@ -2016,6 +2178,23 @@ function WorkerApp() {
                           <p>
                             <b>Location:</b> {alert.toilet_location}
                           </p>
+                          <p>
+                            <b>Toilet Type:</b> {getToiletTypeSymbols(alert.toilet_type)}{" "}
+                            {alert.toilet_type || "Both"}
+                          </p>
+                          <p>
+                            <b>Toilet Status:</b> {alert.toilet_status || "-"}
+                          </p>
+                          <div className="worker-sensor-row">
+                            <span>Gas: {formatGasValue(alert.toilet_gas_level)}</span>
+                            <span>Dustbin: {clampMetric(alert.toilet_dustbin_level)}%</span>
+                            <span>Water: {clampMetric(alert.toilet_water_level)}%</span>
+                            <span>People: {Number(alert.toilet_usage_count || 0)}</span>
+                          </div>
+                          {(getSafeGasValue(alert.toilet_gas_level) > GAS_HIGH_THRESHOLD ||
+                            alert.fan_on_alert) && (
+                            <div className="worker-fan-alert">Fan ON Alert (High Gas)</div>
+                          )}
                           <p>
                             <b>Issue Alert:</b> {alert.alert_type}
                           </p>
@@ -2110,6 +2289,10 @@ function WorkerApp() {
                           </div>
                           <p>{selectedToilet.location}</p>
                           <div className="worker-sim-metrics">
+                            <span>
+                              Type: {getToiletTypeSymbols(selectedToilet.toilet_type)}{" "}
+                              {selectedToilet.toilet_type || "Both"}
+                            </span>
                             <span>Usage: {selectedToilet.usage_count}</span>
                             <span
                               className={`metric-${getToiletMetricTone(
@@ -2125,6 +2308,8 @@ function WorkerApp() {
                             >
                               Water: {clampMetric(selectedToilet.water_level)}%
                             </span>
+                            <span>Gas: {formatGasValue(selectedToilet.gas_level)}</span>
+                            <span>Dustbin: {clampMetric(selectedToilet.dustbin_level)}%</span>
                             <span
                               className={`metric-${getToiletMetricTone(
                                 selectedToilet.health_score
@@ -2132,6 +2317,10 @@ function WorkerApp() {
                             >
                               Health: {clampMetric(selectedToilet.health_score)}%
                             </span>
+                            {(getSafeGasValue(selectedToilet.gas_level) > GAS_HIGH_THRESHOLD ||
+                              selectedToilet.fan_on_alert) && (
+                              <span className="worker-fan-alert-inline">Fan ON Alert</span>
+                            )}
                             <span>Alert Level: {selectedToilet.alert_level}</span>
                           </div>
                           <div className="worker-sim-logic">

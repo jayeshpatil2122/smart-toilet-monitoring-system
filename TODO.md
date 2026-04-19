@@ -1,16 +1,21 @@
-# Futuristic Login Page Implementation
+# SMART_PUBLIC_TOILET - Rating & Reviews Feature (Citizen Panel)
 
-## Task: Make the login page futuristic with 3D animations and modern effects
+## Current Task Progress
 
-### Steps:
-1. [ ] Update App.css with futuristic styles:
-   - [ ] Animated background with floating particles/grid effect
-   - [ ] Neon glow effects on auth card
-   - [ ] 3D tilt animations on hover
-   - [ ] Enhanced glass morphism
-   - [ ] Animated gradient borders
-   - [ ] Better mobile responsive styles
-2. [ ] Update App.js with additional CSS classes for futuristic elements
-3. [ ] Test the implementation
+### Backend Changes
+- [x] 1. Update toilets/models.py - Add `comment` field to ToiletRating model
+- [x] 2. Update toilets/serializers.py - Add ToiletRatingSerializer + fields
+- [x] 3. Update toilets/views.py - Add GET reviews endpoint, update POST rate
+- [x] 4. Update toilets/urls.py - Add reviews URL path
+- [x] 5. Run `python backend/manage.py makemigrations toilets` && `python backend/manage.py migrate`
 
-## Status: In Progress
+### Frontend Changes
+- [x] 6. Update frontend/public-frontend/src/App.js - Add reviews list/form toggle/UI/API
+
+### Testing
+- [ ] 7. Test rating submit with comment
+- [ ] 8. Test reviews list display
+- [ ] 9. Verify toilet list refresh shows updated avg
+
+**Instructions:** Execute steps sequentially. After each major step (backend/frontend), test APIs/UI. Mark [x] when complete.
+

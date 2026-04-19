@@ -1,0 +1,170 @@
+{% extends "admin/base_site.html" %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+  <a href="{% url 'admin:index' %}">Home</a>
+  &rsaquo; <a href="{% url 'admin:app_list' app_label=opts.app_label %}">{{ opts.app_config.verbose_name }}</a>
+  &rsaquo; <a href="{% url 'admin:complaints_complaint_changelist' %}">{{ opts.verbose_name_plural|capfirst }}</a>
+  &rsaquo; Workers History
+</div>
+{% endblock %}
+
+{% block extrastyle %}
+{{ block.super }}
+<style>
+  .workers-history-shell { display: grid; gap: 18px; }
+  .workers-history-grid { display: grid; grid-template-columns: repeat(2, minmax(280px, 1fr)); gap: 16px; }
+  .worker-role-card { border: 1px solid #d8dee6; border-radius: 10px; background: #fff; padding: 12px; }
+  .worker-role-card h2 { margin: 0 0 10px; font-size: 16px; }
+  .worker-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  .worker-list-item { border: 1px solid #e6ebf1; border-radius: 8px; background: #f8fafc; }
+  .worker-list-item.selected { border-color: #2563eb; background: #eff6ff; }
+  .worker-list-item a { display: block; text-decoration: none; color: #0f172a; padding: 10px; }
+  .worker-head { display: flex; justify-content: space-between; gap: 8px; align-items: center; margin-bottom: 4px; }
+  .worker-head strong { font-size: 14px; }
+  .worker-email { color: #475569; font-size: 12px; margin-bottom: 6px; }
+  .worker-counts { display: flex; flex-wrap: wrap; gap: 6px; }
+  .worker-counts span { font-size: 11px; border: 1px solid #cbd5e1; border-radius: 999px; padding: 2px 8px; background: #fff; }
+  .selected-summary { border: 1px solid #d8dee6; border-radius: 10px; background: #fff; padding: 14px; }
+  .selected-summary h2 { margin: 0 0 8px; font-size: 18px; }
+  .selected-summary-meta { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 4px; }
+  .selected-summary-meta span { border: 1px solid #cbd5e1; border-radius: 999px; padding: 3px 10px; font-size: 12px; background: #f8fafc; }
+  .complaint-status-grid { display: grid; grid-template-columns: repeat(3, minmax(240px, 1fr)); gap: 12px; }
+  .status-column { border: 1px solid #d8dee6; border-radius: 10px; background: #fff; padding: 12px; }
+  .status-column h3 { margin: 0 0 8px; font-size: 15px; }
+  .status-column ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  .complaint-card { border: 1px solid #e6ebf1; border-radius: 8px; padding: 8px; background: #f8fafc; }
+  .complaint-card p { margin: 4px 0; font-size: 12px; }
+  .complaint-card p b { color: #334155; }
+  .empty-note { margin: 0; color: #475569; font-size: 12px; }
+  @media (max-width: 1100px) {
+    .workers-history-grid { grid-template-columns: 1fr; }
+    .complaint-status-grid { grid-template-columns: 1fr; }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="workers-history-shell">
+  <div>
+    <h1>Workers History</h1>
+    <p>Select any worker to view solved, ongoing, and unsolved complaint records.</p>
+  </div>
+
+  <div class="workers-history-grid">
+    {% for section in worker_sections %}
+      <section class="worker-role-card">
+        <h2>{{ section.title }}</h2>
+        {% if section.workers %}
+          <ul class="worker-list">
+            {% for worker in section.workers %}
+              <li class="worker-list-item {% if worker.is_selected %}selected{% endif %}">
+                <a href="?worker={{ worker.id }}">
+                  <div class="worker-head">
+                    <strong>{{ worker.username }}</strong>
+                    <span>Complaints: {{ worker.counts.total }}</span>
+                  </div>
+                  <div class="worker-email">{{ worker.email|default:"No email set" }}</div>
+                  <div class="worker-counts">
+                    <span>Unsolved: {{ worker.counts.pending }}</span>
+                    <span>Ongoing: {{ worker.counts.in_progress }}</span>
+                    <span>Solved: {{ worker.counts.resolved }}</span>
+                  </div>
+                </a>
+              </li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="empty-note">No workers found in this section.</p>
+        {% endif %}
+      </section>
+    {% endfor %}
+  </div>
+
+  {% if selected_profile %}
+    <section class="selected-summary">
+      <h2>{{ selected_profile.user.username }} - {{ selected_profile.role }}</h2>
+      <div class="selected-summary-meta">
+        <span>Total: {{ selected_worker_counts.total }}</span>
+        <span>Unsolved: {{ selected_worker_counts.pending }}</span>
+        <span>Ongoing: {{ selected_worker_counts.in_progress }}</span>
+        <span>Solved: {{ selected_worker_counts.resolved }}</span>
+      </div>
+    </section>
+
+    <div class="complaint-status-grid">
+      <section class="status-column">
+        <h3>Unsolved Complaints</h3>
+        {% if unsolved_complaints %}
+          <ul>
+            {% for complaint in unsolved_complaints %}
+              <li class="complaint-card">
+                <p><b>ID:</b> #{{ complaint.id }}</p>
+                <p><b>Toilet:</b> {{ complaint.toilet.name }}</p>
+                <p><b>Issue:</b> {{ complaint.issue_type }}</p>
+                <p><b>Priority:</b> {{ complaint.priority }}</p>
+                <p><b>Status:</b> {{ complaint.status }}</p>
+                <p><b>Submitted By:</b> {{ complaint.submitted_by|default:"-" }}</p>
+                <p><b>Created:</b> {{ complaint.created_at|date:"Y-m-d H:i" }}</p>
+                <p><b>Description:</b> {{ complaint.description }}</p>
+              </li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="empty-note">No unsolved complaints.</p>
+        {% endif %}
+      </section>
+
+      <section class="status-column">
+        <h3>Ongoing Complaints</h3>
+        {% if ongoing_complaints %}
+          <ul>
+            {% for complaint in ongoing_complaints %}
+              <li class="complaint-card">
+                <p><b>ID:</b> #{{ complaint.id }}</p>
+                <p><b>Toilet:</b> {{ complaint.toilet.name }}</p>
+                <p><b>Issue:</b> {{ complaint.issue_type }}</p>
+                <p><b>Priority:</b> {{ complaint.priority }}</p>
+                <p><b>Status:</b> {{ complaint.status }}</p>
+                <p><b>Submitted By:</b> {{ complaint.submitted_by|default:"-" }}</p>
+                <p><b>Created:</b> {{ complaint.created_at|date:"Y-m-d H:i" }}</p>
+                <p><b>Description:</b> {{ complaint.description }}</p>
+              </li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="empty-note">No ongoing complaints.</p>
+        {% endif %}
+      </section>
+
+      <section class="status-column">
+        <h3>Solved Complaints</h3>
+        {% if solved_complaints %}
+          <ul>
+            {% for complaint in solved_complaints %}
+              <li class="complaint-card">
+                <p><b>ID:</b> #{{ complaint.id }}</p>
+                <p><b>Toilet:</b> {{ complaint.toilet.name }}</p>
+                <p><b>Issue:</b> {{ complaint.issue_type }}</p>
+                <p><b>Priority:</b> {{ complaint.priority }}</p>
+                <p><b>Status:</b> {{ complaint.status }}</p>
+                <p><b>Submitted By:</b> {{ complaint.submitted_by|default:"-" }}</p>
+                <p><b>Created:</b> {{ complaint.created_at|date:"Y-m-d H:i" }}</p>
+                <p><b>Resolved:</b> {{ complaint.resolved_at|date:"Y-m-d H:i"|default:"-" }}</p>
+                <p><b>Description:</b> {{ complaint.description }}</p>
+              </li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="empty-note">No solved complaints.</p>
+        {% endif %}
+      </section>
+    </div>
+  {% else %}
+    <section class="selected-summary">
+      <p class="empty-note">Pick any worker from above to load complaint history details.</p>
+    </section>
+  {% endif %}
+</div>
+{% endblock %}
+

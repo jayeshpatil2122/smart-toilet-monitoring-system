@@ -1,8 +1,12 @@
 from django.contrib import admin
 from django.contrib.auth.models import User
+from django.db.models import Count, Q
+from django.template.response import TemplateResponse
+from django.urls import path
 from django.utils.html import format_html
 
 from .models import Complaint
+from workers.models import WorkerProfile
 
 
 class ComplaintQueueFilter(admin.SimpleListFilter):
@@ -28,6 +32,7 @@ class ComplaintQueueFilter(admin.SimpleListFilter):
 
 @admin.register(Complaint)
 class ComplaintAdmin(admin.ModelAdmin):
+    change_list_template = "admin/complaints/complaint/change_list.html"
     list_display = (
         "id",
         "toilet",
@@ -168,3 +173,125 @@ class ComplaintAdmin(admin.ModelAdmin):
                 User.objects.filter(groups__name="Worker").order_by("username").distinct()
             )
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "workers-history/",
+                self.admin_site.admin_view(self.workers_history_view),
+                name="complaints_complaint_workers_history",
+            ),
+        ]
+        return custom_urls + urls
+
+    def _build_worker_section(self, title, profiles, summary_map, selected_worker_id):
+        workers = []
+        for profile in profiles:
+            counts = summary_map.get(
+                profile.user_id,
+                {"total": 0, "pending": 0, "in_progress": 0, "resolved": 0},
+            )
+            workers.append(
+                {
+                    "id": profile.user_id,
+                    "username": profile.user.username,
+                    "email": profile.user.email,
+                    "counts": counts,
+                    "is_selected": profile.user_id == selected_worker_id,
+                }
+            )
+        return {"title": title, "workers": workers}
+
+    def workers_history_view(self, request):
+        selected_worker_id = request.GET.get("worker")
+        try:
+            selected_worker_id = int(selected_worker_id) if selected_worker_id else None
+        except (TypeError, ValueError):
+            selected_worker_id = None
+
+        sanitation_profiles = list(
+            WorkerProfile.objects.filter(role=WorkerProfile.ROLE_SANITATION)
+            .select_related("user")
+            .order_by("user__username")
+        )
+        payment_profiles = list(
+            WorkerProfile.objects.filter(role=WorkerProfile.ROLE_ENTRY)
+            .select_related("user")
+            .order_by("user__username")
+        )
+
+        all_worker_ids = [profile.user_id for profile in sanitation_profiles + payment_profiles]
+        summary_map = {}
+        if all_worker_ids:
+            summary_rows = (
+                Complaint.objects.filter(assigned_to_id__in=all_worker_ids)
+                .values("assigned_to_id")
+                .annotate(
+                    total=Count("id"),
+                    pending=Count("id", filter=Q(status="Pending")),
+                    in_progress=Count("id", filter=Q(status="In Progress")),
+                    resolved=Count("id", filter=Q(status="Resolved")),
+                )
+            )
+            summary_map = {
+                row["assigned_to_id"]: {
+                    "total": row["total"],
+                    "pending": row["pending"],
+                    "in_progress": row["in_progress"],
+                    "resolved": row["resolved"],
+                }
+                for row in summary_rows
+            }
+
+        selected_profile = None
+        selected_complaints = []
+        selected_worker_counts = {"total": 0, "pending": 0, "in_progress": 0, "resolved": 0}
+        if selected_worker_id:
+            selected_profile = (
+                WorkerProfile.objects.select_related("user")
+                .filter(user_id=selected_worker_id)
+                .first()
+            )
+            if selected_profile:
+                selected_complaints = list(
+                    Complaint.objects.filter(assigned_to_id=selected_worker_id)
+                    .select_related("toilet", "assigned_to", "submitted_by")
+                    .order_by("-created_at")
+                )
+                selected_worker_counts = summary_map.get(
+                    selected_worker_id,
+                    {"total": 0, "pending": 0, "in_progress": 0, "resolved": 0},
+                )
+
+        unsolved_complaints = [item for item in selected_complaints if item.status == "Pending"]
+        ongoing_complaints = [item for item in selected_complaints if item.status == "In Progress"]
+        solved_complaints = [item for item in selected_complaints if item.status == "Resolved"]
+
+        worker_sections = [
+            self._build_worker_section(
+                "Sanitary Workers",
+                sanitation_profiles,
+                summary_map,
+                selected_worker_id,
+            ),
+            self._build_worker_section(
+                "Payment Workers",
+                payment_profiles,
+                summary_map,
+                selected_worker_id,
+            ),
+        ]
+
+        context = {
+            **self.admin_site.each_context(request),
+            "opts": self.model._meta,
+            "title": "Workers History",
+            "worker_sections": worker_sections,
+            "selected_profile": selected_profile,
+            "selected_worker_counts": selected_worker_counts,
+            "unsolved_complaints": unsolved_complaints,
+            "ongoing_complaints": ongoing_complaints,
+            "solved_complaints": solved_complaints,
+        }
+        return TemplateResponse(request, "admin/complaints/workers_history.html", context)

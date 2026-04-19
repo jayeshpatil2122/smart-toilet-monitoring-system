@@ -1,8 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
+import { QRCodeSVG } from "qrcode.react";
 import appLogo from "./logo.svg";
 import ComplaintForm from "./ComplaintForm.js";
 import ToiletMap from "./components/ToiletMap";
+import ParallaxStarsBackground from "./components/ParallaxStarsBackground";
+import { FIXED_LOCATION, buildMapsDirectionUrl } from "./constants/fixedLocation";
 import "./App.css";
 
 const API_BASE = (
@@ -11,10 +14,9 @@ const API_BASE = (
 const PORTAL_API_BASE = `${API_BASE}/api/workers/portal`;
 const COMPLAINTS_API_BASE = `${API_BASE}/api/complaints`;
 const TOILETS_API_BASE = `${API_BASE}/api/toilets`;
+const PAYMENTS_API_BASE = `${API_BASE}/api/payments`;
 const APP_NAME = "SANITRAX";
 const SPLASH_DURATION_MS = 3000;
-const LOGIN_BG_VIDEO_PATH =
-  process.env.REACT_APP_LOGIN_BG_VIDEO_URL?.trim() || "https://cdn.pixabay.com/video/2021/10/05/90875-629483572_large.mp4";
 const GOOGLE_CLIENT_ID = (
   process.env.REACT_APP_GOOGLE_CLIENT_ID?.trim() ||
   "985373381636-pk1i0l5p36u3a11vq1figa30q2mk0a56.apps.googleusercontent.com"
@@ -30,6 +32,7 @@ const DEFAULT_PROFILE_META = {
 const SIDE_MENU_ITEMS = [
   { id: "profile", label: "View Profile", iconType: "profile" },
   { id: "toilets", label: "Show Toilets", iconType: "toilets" },
+  { id: "payments", label: "Payments", iconType: "payments" },
   { id: "complaints", label: "Complaints", iconType: "complaints" },
   { id: "contact", label: "Contact Us", iconType: "contact" },
   { id: "faq", label: "FAQs", iconType: "faq" },
@@ -68,6 +71,32 @@ const FAQ_ITEMS = [
 ];
 
 const RATING_STARS = [1, 2, 3, 4, 5];
+const PAYMENT_SERVICE_OPTIONS = [
+  {
+    id: "toilet",
+    label: "Toilet Access",
+    amountRupees: 10,
+    description: "Full toilet usage access pass.",
+  },
+  {
+    id: "washroom",
+    label: "Washroom Access",
+    amountRupees: 5,
+    description: "Quick washroom usage access pass.",
+  },
+];
+const getPaymentServiceById = (serviceId) =>
+  PAYMENT_SERVICE_OPTIONS.find((item) => item.id === serviceId) || PAYMENT_SERVICE_OPTIONS[1];
+const GAS_HIGH_THRESHOLD = 70;
+const TOILET_REFRESH_INTERVAL_MS = 1500;
+
+const getToiletTypeSymbols = (toiletType) => {
+  const normalized = String(toiletType || "").trim().toLowerCase();
+  if (normalized === "male") return "♂";
+  if (normalized === "female") return "♀";
+  if (normalized === "both") return "♂ ♀";
+  return "♂ ♀";
+};
 
 const parseJsonOr = (rawValue, fallbackValue) => {
   if (!rawValue) return fallbackValue;
@@ -167,6 +196,12 @@ const PortalIcon = ({ type }) => {
           <path d="M12 15.5A3.5 3.5 0 1012 8a3.5 3.5 0 000 7.5zM19.4 15a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.9-.3 1.7 1.7 0 00-1 1.6V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1-1.6 1.7 1.7 0 00-1.9.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.9 1.7 1.7 0 00-1.6-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.6-1 1.7 1.7 0 00-.3-1.9l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.9.3h0a1.7 1.7 0 001-1.6V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.6h0a1.7 1.7 0 001.9-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.9v0a1.7 1.7 0 001.6 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.6 1z" />
         </svg>
       );
+    case "payments":
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M3 7h18a2 2 0 012 2v8a2 2 0 01-2 2H3a2 2 0 01-2-2V9a2 2 0 012-2zm0 4h20M7 15h4" />
+        </svg>
+      );
     case "logout":
       return (
         <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -218,6 +253,11 @@ function App() {
   const [voiceSearchSupported, setVoiceSearchSupported] = useState(false);
   const [ratingSubmittingToiletId, setRatingSubmittingToiletId] = useState(null);
   const [expandedRatingToiletIds, setExpandedRatingToiletIds] = useState({});
+  const [reviewsByToiletId, setReviewsByToiletId] = useState({});
+  const [reviewCommentByToiletId, setReviewCommentByToiletId] = useState({});
+  const [reviewDraftRatingByToiletId, setReviewDraftRatingByToiletId] = useState({});
+  const [reviewModeByToiletId, setReviewModeByToiletId] = useState({});
+  const [reviewLoadingToiletId, setReviewLoadingToiletId] = useState(null);
   const [disabledFriendlyRankings, setDisabledFriendlyRankings] = useState([]);
 
   const [showSplash, setShowSplash] = useState(true);
@@ -257,11 +297,16 @@ function App() {
   const [mapFilterMode, setMapFilterMode] = useState("default");
   const [nearestToiletInfo, setNearestToiletInfo] = useState(null);
   const [mapFilterMessage, setMapFilterMessage] = useState("");
+  const [selectedPaymentToiletId, setSelectedPaymentToiletId] = useState(null);
+  const [paymentProcessingToiletId, setPaymentProcessingToiletId] = useState(null);
+  const [paymentProcessingService, setPaymentProcessingService] = useState("");
+  const [paymentReceipt, setPaymentReceipt] = useState(null);
 
   const voiceRecognitionRef = useRef(null);
   const welcomeSpokenTokenRef = useRef("");
   const cleanestListRef = useRef(null);
   const disabledListRef = useRef(null);
+  const toiletRefreshInFlightRef = useRef(false);
 
   const [myComplaints, setMyComplaints] = useState([]);
   const [complaintsLoading, setComplaintsLoading] = useState(false);
@@ -318,20 +363,33 @@ function App() {
   useEffect(() => {
     if (!portalToken) return undefined;
 
+    let isDisposed = false;
     const intervalId = setInterval(() => {
+      if (toiletRefreshInFlightRef.current) return;
+      toiletRefreshInFlightRef.current = true;
+
       axios
         .get(`${TOILETS_API_BASE}/`, {
           headers: { Authorization: `Token ${portalToken}` },
         })
         .then((response) => {
-          setToilets(response.data);
+          if (!isDisposed) {
+            setToilets(response.data);
+          }
         })
         .catch((error) => {
           console.error("Error refreshing toilets:", error);
+        })
+        .finally(() => {
+          toiletRefreshInFlightRef.current = false;
         });
-    }, 10000);
+    }, TOILET_REFRESH_INTERVAL_MS);
 
-    return () => clearInterval(intervalId);
+    return () => {
+      isDisposed = true;
+      clearInterval(intervalId);
+      toiletRefreshInFlightRef.current = false;
+    };
   }, [portalToken]);
 
   const refreshMyComplaints = useCallback(async () => {
@@ -701,9 +759,28 @@ function App() {
     setNearestToiletInfo(null);
     setDisabledFriendlyRankings([]);
     setMapFilterMessage("");
+    setSelectedPaymentToiletId(null);
+    setPaymentProcessingToiletId(null);
+    setPaymentProcessingService("");
+    setPaymentReceipt(null);
     setVoiceSearchActive(false);
     setExpandedRatingToiletIds({});
+    setReviewsByToiletId({});
+    setReviewCommentByToiletId({});
+    setReviewDraftRatingByToiletId({});
+    setReviewModeByToiletId({});
+    setReviewLoadingToiletId(null);
     welcomeSpokenTokenRef.current = "";
+  };
+
+  const handleSwitchToCitizenLogin = () => {
+    if (window.location.pathname !== "/") {
+      window.location.assign("/");
+    }
+  };
+
+  const handleSwitchToWorkerLogin = () => {
+    window.location.assign("/worker");
   };
 
   const openSection = (sectionId) => {
@@ -721,8 +798,140 @@ function App() {
     setSelectedToilet(toiletId);
   };
 
+  const handleOpenPaymentSection = (toiletId) => {
+    setSelectedPaymentToiletId(toiletId);
+    setMapFilterMessage("");
+    setActiveSection("payments");
+    setIsDrawerOpen(false);
+  };
+
   const handleComplaintSubmitted = async () => {
     await refreshMyComplaints();
+  };
+
+  const verifyPayment = async (razorpayResponse) => {
+    if (!portalToken) {
+      setMapFilterMessage("Login required to verify payment.");
+      setPaymentProcessingToiletId(null);
+      setPaymentProcessingService("");
+      return;
+    }
+
+    const verifyPayload = {
+      razorpay_payment_id: razorpayResponse?.razorpay_payment_id,
+      razorpay_order_id: razorpayResponse?.razorpay_order_id,
+      razorpay_signature: razorpayResponse?.razorpay_signature,
+    };
+    if (
+      !verifyPayload.razorpay_payment_id ||
+      !verifyPayload.razorpay_order_id ||
+      !verifyPayload.razorpay_signature
+    ) {
+      setMapFilterMessage("Missing Razorpay verification fields.");
+      setPaymentProcessingToiletId(null);
+      setPaymentProcessingService("");
+      return;
+    }
+
+    try {
+      const response = await axios.post(`${PAYMENTS_API_BASE}/verify/`, verifyPayload, {
+        headers: {
+          Authorization: `Token ${portalToken}`,
+          "Content-Type": "application/json",
+        },
+      });
+      const paymentData = response?.data || {};
+      console.log("Verify payment response:", paymentData);
+
+      if (!paymentData.code || !paymentData.qr_token) {
+        throw new Error("Payment verified but code generation failed.");
+      }
+
+      setPaymentReceipt(paymentData);
+      setMapFilterMessage("Payment successful. Access code generated.");
+    } catch (error) {
+      setMapFilterMessage(
+        error?.response?.data?.detail ||
+          error?.response?.data?.error ||
+          "Payment verification failed."
+      );
+    } finally {
+      setPaymentProcessingToiletId(null);
+      setPaymentProcessingService("");
+    }
+  };
+
+  const handlePayment = async (toiletId, serviceType = "washroom") => {
+    const selectedService = getPaymentServiceById(serviceType);
+
+    if (!portalToken) {
+      setMapFilterMessage("Login required to make payment.");
+      return;
+    }
+
+    if (!window.Razorpay) {
+      setMapFilterMessage("Razorpay SDK not loaded. Refresh the page and try again.");
+      return;
+    }
+
+    setMapFilterMessage("");
+    setPaymentReceipt(null);
+    setPaymentProcessingToiletId(toiletId);
+    setPaymentProcessingService(selectedService.id);
+
+    try {
+      const response = await axios.post(
+        `${PAYMENTS_API_BASE}/create-order/`,
+        { toilet_id: toiletId, service_type: selectedService.id },
+        { headers: { Authorization: `Token ${portalToken}` } }
+      );
+      const data = response?.data || {};
+      const razorpayKey = data.key_id || process.env.REACT_APP_RAZORPAY_KEY_ID || "";
+      if (!data.order_id || !data.amount) {
+        throw new Error("Order creation failed.");
+      }
+      if (!razorpayKey) {
+        throw new Error("Razorpay key is missing.");
+      }
+
+      const options = {
+        key: razorpayKey,
+        amount: data.amount,
+        currency: "INR",
+        name: APP_NAME,
+        description: `${selectedService.label} Payment`,
+        order_id: data.order_id,
+        handler: (razorpayResponse) => {
+          verifyPayment(razorpayResponse);
+        },
+        prefill: {
+          name: portalProfile?.name || portalProfile?.username || "Citizen",
+          email: portalProfile?.email || "",
+        },
+        modal: {
+          ondismiss: () => {
+            setPaymentProcessingToiletId(null);
+            setPaymentProcessingService("");
+          },
+        },
+      };
+
+      const rzp = new window.Razorpay(options);
+      rzp.on("payment.failed", (event) => {
+        setMapFilterMessage(
+          event?.error?.description || event?.error?.reason || "Payment failed. Please try again."
+        );
+        setPaymentProcessingToiletId(null);
+        setPaymentProcessingService("");
+      });
+      rzp.open();
+    } catch (error) {
+      setMapFilterMessage(
+        error?.response?.data?.detail || error?.message || "Unable to start payment."
+      );
+      setPaymentProcessingToiletId(null);
+      setPaymentProcessingService("");
+    }
   };
 
   const persistProfileMeta = (nextMeta, notice) => {
@@ -778,6 +987,10 @@ function App() {
         return "moderate";
       case "critical":
         return "critical";
+      case "in use":
+        return "in-use";
+      case "free":
+        return "free";
       default:
         return "good";
     }
@@ -843,21 +1056,48 @@ function App() {
     [toilets]
   );
 
+  const nearbyToiletsByDistance = useMemo(() => {
+    const baseLat = Number(FIXED_LOCATION.latitude);
+    const baseLng = Number(FIXED_LOCATION.longitude);
+    if (!Number.isFinite(baseLat) || !Number.isFinite(baseLng)) return [];
+
+    return [...mappableToilets]
+      .map((toilet) => ({
+        ...toilet,
+        distanceKm: getDistanceKm(
+          baseLat,
+          baseLng,
+          Number(toilet.latitude),
+          Number(toilet.longitude)
+        ),
+      }))
+      .sort((first, second) => first.distanceKm - second.distanceKm);
+  }, [mappableToilets]);
+
+  const nearbyToiletsForMap = useMemo(
+    () => nearbyToiletsByDistance.slice(0, 5),
+    [nearbyToiletsByDistance]
+  );
+
+  const toiletsNearestFirst = useMemo(() => {
+    const withCoordinatesOrdered = nearbyToiletsByDistance.map(
+      ({ distanceKm, ...toilet }) => toilet
+    );
+    const withCoordinatesIds = new Set(withCoordinatesOrdered.map((toilet) => toilet.id));
+    const withoutCoordinates = toilets
+      .filter((toilet) => !withCoordinatesIds.has(toilet.id))
+      .sort((first, second) => String(first.name || "").localeCompare(String(second.name || "")));
+    return [...withCoordinatesOrdered, ...withoutCoordinates];
+  }, [nearbyToiletsByDistance, toilets]);
+
   const disabledFriendlyToilets = useMemo(
     () => toilets.filter((toilet) => toilet.is_disabled_friendly),
     [toilets]
   );
 
   const cleanestTopToilets = useMemo(() => {
-    return [...mappableToilets]
-      .sort((first, second) => {
-        const cleanlinessDiff =
-          Number(second.cleanliness || 0) - Number(first.cleanliness || 0);
-        if (cleanlinessDiff !== 0) return cleanlinessDiff;
-        return Number(second.health_score || 0) - Number(first.health_score || 0);
-      })
-      .slice(0, 5);
-  }, [mappableToilets]);
+    return nearbyToiletsByDistance.slice(0, 5);
+  }, [nearbyToiletsByDistance]);
 
   const disabledFriendlyToiletsByDistance = useMemo(() => {
     if (!disabledFriendlyRankings.length) return [];
@@ -881,7 +1121,7 @@ function App() {
   }, [nearestToiletInfo, toilets]);
 
   const mapToilets = useMemo(() => {
-    if (mapFilterMode === "nearby" && nearestToiletData) return [nearestToiletData];
+    if (mapFilterMode === "nearby" && nearbyToiletsForMap.length > 0) return nearbyToiletsForMap;
     if (mapFilterMode === "cleanest" && cleanestTopToilets.length > 0) return cleanestTopToilets;
     if (mapFilterMode === "disabled" && disabledFriendlyToiletsByDistance.length > 0) {
       return disabledFriendlyToiletsByDistance;
@@ -889,14 +1129,16 @@ function App() {
     return toilets;
   }, [
     mapFilterMode,
-    nearestToiletData,
+    nearbyToiletsForMap,
     cleanestTopToilets,
     disabledFriendlyToiletsByDistance,
     toilets,
   ]);
 
   const mapHighlightedToiletIds = useMemo(() => {
-    if (mapFilterMode === "nearby" && nearestToiletData) return [nearestToiletData.id];
+    if (mapFilterMode === "nearby" && nearbyToiletsForMap.length > 0) {
+      return nearbyToiletsForMap.map((toilet) => toilet.id);
+    }
     if (mapFilterMode === "cleanest" && cleanestTopToilets.length > 0) {
       return cleanestTopToilets.map((toilet) => toilet.id);
     }
@@ -906,7 +1148,7 @@ function App() {
     return highlightedToiletIds;
   }, [
     mapFilterMode,
-    nearestToiletData,
+    nearbyToiletsForMap,
     cleanestTopToilets,
     disabledFriendlyToiletsByDistance,
     highlightedToiletIds,
@@ -938,6 +1180,11 @@ function App() {
     toilets.forEach((toilet) => map.set(toilet.id, toilet));
     return map;
   }, [toilets]);
+
+  const selectedPaymentToilet = useMemo(() => {
+    if (selectedPaymentToiletId === null) return null;
+    return toiletLookup.get(selectedPaymentToiletId) || null;
+  }, [selectedPaymentToiletId, toiletLookup]);
 
   const complaintsStats = useMemo(() => {
     let pending = 0;
@@ -1006,73 +1253,44 @@ function App() {
   };
 
   const requestCurrentPosition = () =>
-    new Promise((resolve, reject) => {
-      if (!navigator.geolocation) {
-        reject(new Error("Geolocation is not supported."));
-        return;
-      }
-
-      navigator.geolocation.getCurrentPosition(resolve, reject, {
-        enableHighAccuracy: true,
-        timeout: 10000,
-      });
+    Promise.resolve({
+      coords: {
+        latitude: FIXED_LOCATION.latitude,
+        longitude: FIXED_LOCATION.longitude,
+      },
     });
 
-  const handleShowNearbyToilet = async () => {
+  const handleShowNearbyToilet = () => {
     setMapFilterMessage("");
     setActiveSection("map");
     setDisabledFriendlyRankings([]);
 
-    if (mappableToilets.length === 0) {
+    if (nearbyToiletsByDistance.length === 0) {
       setMapFilterMode("default");
       setMapFilterMessage("No toilets with location coordinates are available.");
       return;
     }
 
-    try {
-      const position = await requestCurrentPosition();
-      const userLat = Number(position.coords.latitude);
-      const userLng = Number(position.coords.longitude);
-
-      let nearestToilet = null;
-      let nearestDistance = Number.POSITIVE_INFINITY;
-
-      mappableToilets.forEach((toilet) => {
-        const distance = getDistanceKm(
-          userLat,
-          userLng,
-          Number(toilet.latitude),
-          Number(toilet.longitude)
-        );
-        if (distance < nearestDistance) {
-          nearestDistance = distance;
-          nearestToilet = toilet;
-        }
-      });
-
-      if (!nearestToilet) {
-        setMapFilterMode("default");
-        setMapFilterMessage("Could not find a nearby toilet.");
-        return;
-      }
-
-      setNearestToiletInfo({
-        toiletId: nearestToilet.id,
-        distanceKm: nearestDistance,
-      });
-      setMapFilterMode("nearby");
-      setShowAllToilets(false);
-      setDetailsOnlyId(null);
-      setFocusedToiletId(null);
-      speakText(
-        `Nearest toilet is ${nearestToilet.name}, approximately ${nearestDistance.toFixed(
-          2
-        )} kilometers away.`
-      );
-    } catch (_error) {
+    const nearestToilet = nearbyToiletsByDistance[0];
+    if (!nearestToilet) {
       setMapFilterMode("default");
-      setMapFilterMessage("Please allow location access to find nearby toilets.");
+      setMapFilterMessage("Could not find a nearby toilet.");
+      return;
     }
+
+    setNearestToiletInfo({
+      toiletId: nearestToilet.id,
+      distanceKm: nearestToilet.distanceKm,
+    });
+    setMapFilterMode("nearby");
+    setShowAllToilets(false);
+    setDetailsOnlyId(null);
+    setFocusedToiletId(null);
+    speakText(
+      `Nearest toilet is ${nearestToilet.name}, approximately ${nearestToilet.distanceKm.toFixed(
+        2
+      )} kilometers away.`
+    );
   };
 
   const handleShowCleanestToilets = () => {
@@ -1095,9 +1313,7 @@ function App() {
     const topToilet = cleanestTopToilets[0];
     if (topToilet) {
       speakText(
-        `Top cleanest toilet is ${topToilet.name} with cleanliness ${clampPercentage(
-          topToilet.cleanliness
-        )} percent.`
+        `Nearest toilet around you is ${topToilet.name}.`
       );
     }
   };
@@ -1131,27 +1347,19 @@ function App() {
             Number(toilet.longitude)
           ),
         }))
-        .sort((first, second) => first.distanceKm - second.distanceKm);
+        .sort((first, second) => first.distanceKm - second.distanceKm)
+        .slice(0, 5);
 
-      const withoutCoordinates = disabledFriendlyToilets
-        .filter((toilet) => !hasCoordinates(toilet))
-        .sort((first, second) => first.name.localeCompare(second.name))
-        .map((toilet) => ({
-          toiletId: toilet.id,
-          distanceKm: null,
-        }));
-
-      rankedToilets = [...withCoordinates, ...withoutCoordinates];
+      rankedToilets = withCoordinates;
     } catch (_error) {
-      rankedToilets = [...disabledFriendlyToilets]
-        .sort((first, second) => first.name.localeCompare(second.name))
-        .map((toilet) => ({
-          toiletId: toilet.id,
-          distanceKm: null,
-        }));
-      setMapFilterMessage(
-        "Showing disabled-friendly toilets. Enable location for nearest-first distance sorting."
-      );
+      rankedToilets = [];
+    }
+
+    if (rankedToilets.length === 0) {
+      setMapFilterMode("default");
+      setDisabledFriendlyRankings([]);
+      setMapFilterMessage("No nearby disabled-friendly toilets are available right now.");
+      return;
     }
 
     setDisabledFriendlyRankings(rankedToilets);
@@ -1185,10 +1393,7 @@ function App() {
 
   const handleNavigateToToilet = (toilet) => {
     if (!toilet || !hasCoordinates(toilet)) return;
-    window.open(
-      `https://www.google.com/maps/dir/?api=1&destination=${toilet.latitude},${toilet.longitude}`,
-      "_blank"
-    );
+    window.open(buildMapsDirectionUrl(toilet.latitude, toilet.longitude), "_blank");
   };
 
   const handleVoiceToiletSearch = () => {
@@ -1272,14 +1477,38 @@ function App() {
     }
   };
 
-  const handleToiletRatingSubmit = async (toiletId, ratingValue) => {
+  const fetchToiletReviews = async (toiletId) => {
     if (!portalToken) return;
+    setReviewLoadingToiletId(toiletId);
+    try {
+      const response = await axios.get(`${TOILETS_API_BASE}/${toiletId}/reviews/`, {
+        headers: { Authorization: `Token ${portalToken}` },
+      });
+      const fetchedReviews = Array.isArray(response?.data?.reviews) ? response.data.reviews : [];
+      setReviewsByToiletId((prev) => ({ ...prev, [toiletId]: fetchedReviews }));
+    } catch (error) {
+      console.error("Failed to fetch reviews:", error);
+      setMapFilterMessage(error?.response?.data?.detail || "Could not load reviews.");
+    } finally {
+      setReviewLoadingToiletId((current) => (current === toiletId ? null : current));
+    }
+  };
+
+  const handleReviewSubmit = async (toiletId) => {
+    if (!portalToken) return;
+
+    const ratingValue = Number(reviewDraftRatingByToiletId[toiletId] || 0);
+    if (ratingValue < 1 || ratingValue > 5) {
+      setMapFilterMessage("Please select a star rating before submitting.");
+      return;
+    }
 
     setRatingSubmittingToiletId(toiletId);
     try {
+      const comment = String(reviewCommentByToiletId[toiletId] || "").trim();
       const response = await axios.post(
         `${TOILETS_API_BASE}/${toiletId}/rate/`,
-        { rating: ratingValue },
+        { rating: ratingValue, comment },
         { headers: { Authorization: `Token ${portalToken}` } }
       );
 
@@ -1291,20 +1520,57 @@ function App() {
           )
         );
       }
+
+      const nextMyRating = Number(updatedToilet?.my_rating || ratingValue);
+      setReviewCommentByToiletId((prev) => ({ ...prev, [toiletId]: "" }));
+      setReviewDraftRatingByToiletId((prev) => ({ ...prev, [toiletId]: nextMyRating }));
+      setReviewModeByToiletId((prev) => ({ ...prev, [toiletId]: "list" }));
+      await fetchToiletReviews(toiletId);
+      setMapFilterMessage(response?.data?.detail || "Review submitted successfully.");
     } catch (error) {
       setMapFilterMessage(
-        error?.response?.data?.detail || "Could not submit rating. Please try again."
+        error?.response?.data?.detail || "Could not submit review. Please try again."
       );
     } finally {
       setRatingSubmittingToiletId(null);
     }
   };
 
-  const handleToggleToiletRating = (toiletId) => {
-    setExpandedRatingToiletIds((previous) => ({
-      ...previous,
-      [toiletId]: !previous[toiletId],
+  const handleToggleToiletRating = async (toiletId, defaultRating = 0) => {
+    const isExpanded = Boolean(expandedRatingToiletIds[toiletId]);
+    const nextExpanded = !isExpanded;
+    setExpandedRatingToiletIds((prev) => ({
+      ...prev,
+      [toiletId]: nextExpanded,
     }));
+
+    if (!nextExpanded) return;
+
+    setReviewModeByToiletId((prev) => ({
+      ...prev,
+      [toiletId]: prev[toiletId] || "form",
+    }));
+    setReviewDraftRatingByToiletId((prev) => {
+      if (prev[toiletId]) return prev;
+      const initialValue = Number(defaultRating || 0);
+      if (initialValue < 1 || initialValue > 5) return prev;
+      return { ...prev, [toiletId]: initialValue };
+    });
+
+    const hasCachedReviews = Object.prototype.hasOwnProperty.call(reviewsByToiletId, toiletId);
+    if (!hasCachedReviews) {
+      await fetchToiletReviews(toiletId);
+    }
+  };
+
+  const handleReviewModeChange = async (toiletId, mode) => {
+    setReviewModeByToiletId((prev) => ({ ...prev, [toiletId]: mode }));
+    if (mode === "list") {
+      const hasCachedReviews = Object.prototype.hasOwnProperty.call(reviewsByToiletId, toiletId);
+      if (!hasCachedReviews) {
+        await fetchToiletReviews(toiletId);
+      }
+    }
   };
 
   const toggleLabel = !showAllToilets
@@ -1346,6 +1612,12 @@ function App() {
             const healthValue = clampPercentage(toilet.health_score);
             const cleanlinessValue = clampPercentage(toilet.cleanliness);
             const waterValue = clampPercentage(toilet.water_level);
+            const gasValueRaw = Number(toilet.gas_level || 0);
+            const gasValue = Number.isFinite(gasValueRaw) ? gasValueRaw : 0;
+            const dustbinValue = clampPercentage(toilet.dustbin_level);
+            const peopleCount = Number(toilet.people_count ?? toilet.usage_count ?? 0);
+            const fanOnAlert = gasValue > GAS_HIGH_THRESHOLD || Boolean(toilet.fan_on_alert);
+            const toiletTypeSymbols = getToiletTypeSymbols(toilet.toilet_type);
             const averageRating = Number(toilet.average_rating || 0);
             const ratingsCount = Number(toilet.ratings_count || 0);
             const myRating = Number(toilet.my_rating || 0);
@@ -1353,6 +1625,10 @@ function App() {
             const visibleRating = myRating || Math.round(weightedRating);
             const ratingConfidence = getRatingConfidenceLabel(ratingsCount);
             const isRatingExpanded = Boolean(expandedRatingToiletIds[toilet.id]);
+            const activeReviewMode = reviewModeByToiletId[toilet.id] || "form";
+            const draftReviewRating = Number(reviewDraftRatingByToiletId[toilet.id] || myRating || 0);
+            const draftReviewComment = reviewCommentByToiletId[toilet.id] || "";
+            const toiletReviews = reviewsByToiletId[toilet.id] || [];
 
             return (
               <div
@@ -1376,16 +1652,20 @@ function App() {
                         Disabled-Friendly
                       </span>
                     )}
+                    <div className="toilet-type-chip" title={`Toilet Type: ${toilet.toilet_type || "Both"}`}>
+                      {toiletTypeSymbols} {toilet.toilet_type || "Both"}
+                    </div>
                     <h3 className="toilet-name">{toilet.name}</h3>
                     <p className="toilet-location">{toilet.location}</p>
                   </div>
-                  <span className={`status-badge ${statusClass}`}>{toilet.status || "Good"}</span>
+                  <span className={`status-badge ${statusClass}`}>{toilet.status || "FREE"}</span>
                 </div>
 
                 <div className="toilet-kpi-row">
-                  <div className="usage-count">
-                    Used {toilet.usage_count || 0} times today
-                  </div>
+                  <div className="usage-count">People Count: {peopleCount}</div>
+                  <div className="sensor-chip">Gas: {gasValue.toFixed(1)}</div>
+                  <div className="sensor-chip">Dustbin: {dustbinValue}%</div>
+                  {fanOnAlert && <div className="fan-alert-chip">Fan ON Alert</div>}
                 </div>
 
                 <div className="toilet-metrics">
@@ -1429,6 +1709,14 @@ function App() {
                   </button>
                   <button
                     type="button"
+                    className="payment-btn"
+                    onClick={() => handleOpenPaymentSection(toilet.id)}
+                    disabled={paymentProcessingToiletId === toilet.id}
+                  >
+                    {paymentProcessingToiletId === toilet.id ? "Processing..." : "Pay Online"}
+                  </button>
+                  <button
+                    type="button"
                     className="direction-btn"
                     disabled={!hasCoordinates(toilet)}
                     onClick={() => handleNavigateToToilet(toilet)}
@@ -1441,13 +1729,13 @@ function App() {
                   <button
                     type="button"
                     className={`toilet-rating-toggle ${isRatingExpanded ? "open" : ""}`}
-                    onClick={() => handleToggleToiletRating(toilet.id)}
+                    onClick={() => handleToggleToiletRating(toilet.id, myRating)}
                     aria-expanded={isRatingExpanded}
                     aria-controls={`toilet-rating-panel-${toilet.id}`}
                   >
-                    <span>Citizen Rating</span>
+                    <span>Citizen Reviews</span>
                     <b>{weightedRating.toFixed(1)} / 5</b>
-                    <small>{isRatingExpanded ? "Hide" : "Show"}</small>
+                    <small>{isRatingExpanded ? "Hide" : "Open"}</small>
                   </button>
                   {isRatingExpanded && (
                     <div id={`toilet-rating-panel-${toilet.id}`} className="toilet-rating-box">
@@ -1461,25 +1749,133 @@ function App() {
                         Avg {averageRating.toFixed(1)} from {ratingsCount}{" "}
                         {ratingsCount === 1 ? "rating" : "ratings"} - {ratingConfidence}
                       </small>
-                      <div className="toilet-rating-stars">
-                        {RATING_STARS.map((star) => (
-                          <button
-                            key={`${toilet.id}-rating-${star}`}
-                            type="button"
-                            className={`toilet-star-btn ${star <= visibleRating ? "active" : ""} ${
-                              star <= myRating ? "mine" : ""
-                            }`}
-                            onClick={() => handleToiletRatingSubmit(toilet.id, star)}
-                            disabled={ratingSubmittingToiletId === toilet.id}
-                            title={`Rate ${star} star${star > 1 ? "s" : ""}`}
-                          >
-                            {"\u2605"}
-                          </button>
-                        ))}
+                      <div className="toilet-rating-actions">
+                        <button
+                          type="button"
+                          className={`toilet-rating-mode-btn ${
+                            activeReviewMode === "form" ? "active" : ""
+                          }`}
+                          onClick={() => handleReviewModeChange(toilet.id, "form")}
+                        >
+                          Write Review
+                        </button>
+                        <button
+                          type="button"
+                          className={`toilet-rating-mode-btn ${
+                            activeReviewMode === "list" ? "active" : ""
+                          }`}
+                          onClick={() => handleReviewModeChange(toilet.id, "list")}
+                        >
+                          Show Reviews ({ratingsCount})
+                        </button>
                       </div>
-                      <small className="toilet-rating-note">
-                        {myRating > 0 ? `Your rating: ${myRating}/5` : "Tap a star to rate this toilet"}
-                      </small>
+
+                      {activeReviewMode === "form" && (
+                        <div className="toilet-rating-form">
+                          <small className="toilet-rating-field-label">Your rating</small>
+                          <div className="toilet-rating-stars">
+                            {RATING_STARS.map((star) => (
+                              <button
+                                key={`${toilet.id}-rating-${star}`}
+                                type="button"
+                                className={`toilet-star-btn ${star <= draftReviewRating ? "active" : ""} ${
+                                  star <= myRating ? "mine" : ""
+                                }`}
+                                onClick={() =>
+                                  setReviewDraftRatingByToiletId((prev) => ({
+                                    ...prev,
+                                    [toilet.id]: star,
+                                  }))
+                                }
+                                disabled={ratingSubmittingToiletId === toilet.id}
+                                title={`Rate ${star} star${star > 1 ? "s" : ""}`}
+                              >
+                                {"\u2605"}
+                              </button>
+                            ))}
+                          </div>
+                          <textarea
+                            className="toilet-review-comment"
+                            rows={3}
+                            maxLength={500}
+                            placeholder="Write a short review (optional)"
+                            value={draftReviewComment}
+                            onChange={(event) =>
+                              setReviewCommentByToiletId((prev) => ({
+                                ...prev,
+                                [toilet.id]: event.target.value,
+                              }))
+                            }
+                          />
+                          <div className="toilet-review-submit-row">
+                            <small className="toilet-rating-note">
+                              {draftReviewRating > 0
+                                ? `Selected rating: ${draftReviewRating}/5`
+                                : "Choose stars and submit your review"}
+                            </small>
+                            <button
+                              type="button"
+                              className="toilet-review-submit-btn"
+                              onClick={() => handleReviewSubmit(toilet.id)}
+                              disabled={ratingSubmittingToiletId === toilet.id}
+                            >
+                              {ratingSubmittingToiletId === toilet.id ? "Submitting..." : "Submit Review"}
+                            </button>
+                          </div>
+                          {myRating > 0 && (
+                            <small className="toilet-rating-note">Your current rating: {myRating}/5</small>
+                          )}
+                          {myRating === 0 && (
+                            <small className="toilet-rating-note">Community score: {visibleRating}/5</small>
+                          )}
+                        </div>
+                      )}
+
+                      {activeReviewMode === "list" && (
+                        <div className="toilet-review-list">
+                          {reviewLoadingToiletId === toilet.id && (
+                            <small className="toilet-rating-note">Loading reviews...</small>
+                          )}
+
+                          {reviewLoadingToiletId !== toilet.id && toiletReviews.length === 0 && (
+                            <small className="toilet-rating-note">
+                              No reviews yet. Be the first one to add a review.
+                            </small>
+                          )}
+
+                          {reviewLoadingToiletId !== toilet.id &&
+                            toiletReviews.map((review) => {
+                              const reviewRating = Number(review.rating || 0);
+                              return (
+                                <article key={review.id} className="toilet-review-item">
+                                  <div className="toilet-review-item-head">
+                                    <strong>{review.username || "Anonymous"}</strong>
+                                    <span>{formatDateTime(review.created_at)}</span>
+                                  </div>
+                                  <div className="toilet-review-item-stars">
+                                    {RATING_STARS.map((star) => (
+                                      <span
+                                        key={`${review.id}-star-${star}`}
+                                        className={`toilet-review-star ${
+                                          star <= reviewRating ? "active" : ""
+                                        }`}
+                                      >
+                                        {"\u2605"}
+                                      </span>
+                                    ))}
+                                  </div>
+                                  <p
+                                    className={`toilet-review-item-comment ${
+                                      review.comment ? "" : "empty"
+                                    }`}
+                                  >
+                                    {review.comment || "No description added."}
+                                  </p>
+                                </article>
+                              );
+                            })}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -1587,6 +1983,7 @@ function App() {
             </div>
             <p>{nearestToiletData.name}</p>
             <small>{nearestToiletData.location}</small>
+            <small>Showing top {nearbyToiletsForMap.length} nearby toilets on map.</small>
             <div className="map-focus-actions">
               <button type="button" onClick={() => handleViewDetailsFromMap(nearestToiletData.id)}>
                 Toilet Details
@@ -1612,7 +2009,7 @@ function App() {
         <section ref={cleanestListRef} className="cleanest-panel">
           <div className="cleanest-panel-head">
             <h3>Cleanest Toilets</h3>
-            <p>Top 5 by cleanliness level</p>
+            <p>Nearest 5 toilets around your location</p>
           </div>
 
           <div className="cleanest-list">
@@ -1645,7 +2042,10 @@ function App() {
         <section ref={disabledListRef} className="cleanest-panel disabled-friendly-panel">
           <div className="cleanest-panel-head">
             <h3>Disabled-Friendly Toilets</h3>
-            <p>Nearest first based on your current location</p>
+            <p>
+              Nearest first based on fixed location: {FIXED_LOCATION.label} (
+              {FIXED_LOCATION.latitude}, {FIXED_LOCATION.longitude})
+            </p>
           </div>
 
           <div className="cleanest-list">
@@ -1710,10 +2110,7 @@ function App() {
   if (!portalToken) {
     return (
       <div className="portal-auth-shell">
-        <video className="portal-auth-video" autoPlay muted loop playsInline>
-          <source src={LOGIN_BG_VIDEO_PATH} type="video/mp4" />
-        </video>
-        <div className="portal-auth-aurora"></div>
+        <ParallaxStarsBackground className="portal-auth-stars" speed={1.2} />
 
         <div className="portal-auth-card-wrap">
           <div className="portal-auth-card">
@@ -1721,6 +2118,15 @@ function App() {
               <img src={appLogo} alt="Portal Logo" className="portal-auth-logo" />
               <h1>{APP_NAME} Citizen Access</h1>
               <p>Secure entry required for {APP_NAME}</p>
+            </div>
+
+            <div className="portal-auth-role-switch">
+              <button type="button" className="active" onClick={handleSwitchToCitizenLogin}>
+                Citizen Login
+              </button>
+              <button type="button" onClick={handleSwitchToWorkerLogin}>
+                Worker Login
+              </button>
             </div>
 
             {authMessage && <div className="portal-auth-msg ok">{authMessage}</div>}
@@ -2027,9 +2433,63 @@ function App() {
           <section className="portal-content-panel">
             <div className="portal-panel-header">
               <h3>All Toilets</h3>
-              <p>Complete card view with live status metrics</p>
+              <p>Nearest toilets shown first with live status metrics</p>
             </div>
-            {renderToiletCards(toilets, false)}
+            {renderToiletCards(toiletsNearestFirst, false)}
+          </section>
+        )}
+
+        {activeSection === "payments" && (
+          <section className="portal-content-panel payment-section-panel">
+            <div className="portal-panel-header">
+              <h3>Payment Section</h3>
+              <p>Select charge type, then continue to Razorpay</p>
+            </div>
+
+            {!selectedPaymentToilet && (
+              <div className="portal-panel-empty">
+                <p>Select any toilet card and tap Pay Online to start payment.</p>
+              </div>
+            )}
+
+            {selectedPaymentToilet && (
+              <>
+                <div className="payment-section-selected">
+                  <small>Selected Toilet</small>
+                  <h4>{selectedPaymentToilet.name}</h4>
+                  <p>{selectedPaymentToilet.location}</p>
+                </div>
+
+                <div className="payment-plan-grid">
+                  {PAYMENT_SERVICE_OPTIONS.map((serviceItem) => {
+                    const isProcessing =
+                      paymentProcessingToiletId === selectedPaymentToilet.id &&
+                      paymentProcessingService === serviceItem.id;
+                    return (
+                      <article key={serviceItem.id} className="payment-plan-card">
+                        <div className="payment-plan-head">
+                          <h4>{serviceItem.label}</h4>
+                          <strong>INR {serviceItem.amountRupees}</strong>
+                        </div>
+                        <p>{serviceItem.description}</p>
+                        <button
+                          type="button"
+                          className="payment-plan-btn"
+                          onClick={() => handlePayment(selectedPaymentToilet.id, serviceItem.id)}
+                          disabled={Boolean(paymentProcessingToiletId)}
+                        >
+                          {isProcessing ? "Processing..." : `Pay INR ${serviceItem.amountRupees}`}
+                        </button>
+                      </article>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+
+            {mapFilterMessage && (
+              <div className="map-filter-message payment-section-message">{mapFilterMessage}</div>
+            )}
           </section>
         )}
 
@@ -2258,6 +2718,24 @@ function App() {
       <footer className="portal-footer">
         <p>© {new Date().getFullYear()} {APP_NAME}. All rights reserved.</p>
       </footer>
+
+      {paymentReceipt && (
+        <div className="modal-overlay" onClick={() => setPaymentReceipt(null)}>
+          <div className="modal-content payment-success-modal" onClick={(event) => event.stopPropagation()}>
+            <button className="modal-close-btn" onClick={() => setPaymentReceipt(null)}>
+              x
+            </button>
+            <h2 className="modal-title">Payment Successful</h2>
+            <p className="payment-success-label">Access Code</p>
+            <p className="payment-success-code">{paymentReceipt.code}</p>
+            <p className="payment-success-label">QR Token</p>
+            <div className="payment-qr-wrap">
+              <QRCodeSVG value={paymentReceipt.qr_token || paymentReceipt.qrToken || ""} size={176} />
+            </div>
+            <p className="payment-qr-token">{paymentReceipt.qr_token || paymentReceipt.qrToken}</p>
+          </div>
+        </div>
+      )}
 
       {selectedToilet !== null && (
         <div className="modal-overlay" onClick={() => setSelectedToilet(null)}>

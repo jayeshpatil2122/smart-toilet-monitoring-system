@@ -2,9 +2,10 @@ from django.contrib import admin
 from django.contrib.auth.models import User
 from django.urls import reverse
 from django.utils.html import format_html
+import time
 
 from complaints.models import Complaint
-from .models import ToiletAlert, Toilets
+from .models import SensorStatus, ToiletAlert, Toilets
 
 
 class ComplaintInline(admin.TabularInline):
@@ -38,12 +39,16 @@ class ToiletsAdmin(admin.ModelAdmin):
         'id',
         'name',
         'location',
+        'toilet_type',
         'is_disabled_friendly',
         'latitude',
         'longitude',
         'usage_count',
         'cleanliness',
         'water_level',
+        'gas_level',
+        'dustbin_level',
+        'motion_detected',
         'health_score',
         'alert_level',
         'status',
@@ -54,6 +59,9 @@ class ToiletsAdmin(admin.ModelAdmin):
     readonly_fields = (
         'cleanliness',
         'water_level',
+        'gas_level',
+        'dustbin_level',
+        'motion_detected',
         'health_score',
         'alert_level',
         'status',
@@ -64,12 +72,16 @@ class ToiletsAdmin(admin.ModelAdmin):
     fields = (
         'name',
         'location',
+        'toilet_type',
         'is_disabled_friendly',
         'latitude',
         'longitude',
         'usage_count',
         'cleanliness',
         'water_level',
+        'gas_level',
+        'dustbin_level',
+        'motion_detected',
         'health_score',
         'alert_level',
         'status',
@@ -77,13 +89,22 @@ class ToiletsAdmin(admin.ModelAdmin):
         'updated_at',
     )
 
-    search_fields = ('name', 'location', 'status')
-    list_filter = ('status', 'alert_level', 'is_disabled_friendly')
+    search_fields = ('name', 'location', 'status', 'toilet_type')
+    list_filter = ('status', 'toilet_type', 'alert_level', 'is_disabled_friendly', 'motion_detected')
     ordering = ('-alert_level',)
     inlines = (ComplaintInline,)
 
     # Custom actions for resetting toilet data
     actions = ['reset_toilet_data']
+
+    def get_queryset(self, request):
+        try:
+            from .views import _sync_all_toilets_from_blynk
+
+            _sync_all_toilets_from_blynk()
+        except Exception:
+            pass
+        return super().get_queryset(request)
 
     def reset_toilet_data(self, request, queryset):
         for toilet in queryset:
@@ -138,7 +159,13 @@ class ToiletAlertAdmin(admin.ModelAdmin):
     toilet_location.short_description = "Location"
 
     def alert_type_badge(self, obj):
-        css_class = "low-cleanliness" if obj.alert_type == ToiletAlert.TYPE_LOW_CLEANLINESS else "low-water"
+        css_class_by_alert = {
+            ToiletAlert.TYPE_LOW_CLEANLINESS: "low-cleanliness",
+            ToiletAlert.TYPE_DUSTBIN_FULL: "low-cleanliness",
+            ToiletAlert.TYPE_LOW_WATER: "low-water",
+            ToiletAlert.TYPE_HIGH_GAS: "low-water",
+        }
+        css_class = css_class_by_alert.get(obj.alert_type, "low-water")
         return format_html('<span class="alert-badge {}">{}</span>', css_class, obj.alert_type)
 
     alert_type_badge.short_description = "Issue Alert"
@@ -181,3 +208,84 @@ class ToiletAlertAdmin(admin.ModelAdmin):
     def mark_selected_pending(self, request, queryset):
         queryset.update(status=ToiletAlert.STATUS_PENDING, resolved_at=None, resolved_by=None)
         self.message_user(request, f"Set {queryset.count()} alert(s) to pending.")
+
+
+@admin.register(SensorStatus)
+class SensorStatusAdmin(admin.ModelAdmin):
+    list_display = (
+        "sensor_name",
+        "sensor_key",
+        "blynk_pin",
+        "working_badge",
+        "last_value",
+        "last_checked_at",
+        "last_working_at",
+        "error_message",
+    )
+    list_filter = ("is_working", "sensor_key")
+    search_fields = ("sensor_name", "sensor_key", "blynk_pin", "last_value", "error_message")
+    ordering = ("sensor_name",)
+    readonly_fields = (
+        "sensor_key",
+        "sensor_name",
+        "blynk_pin",
+        "is_working",
+        "last_value",
+        "error_message",
+        "last_checked_at",
+        "last_working_at",
+        "created_at",
+        "updated_at",
+    )
+    actions = ("refresh_sensor_statuses",)
+
+    _last_refresh_mono = 0.0
+    _refresh_interval_seconds = 5.0
+
+    @admin.action(description="Refresh Sensor Statuses From Blynk")
+    def refresh_sensor_statuses(self, request, queryset):
+        try:
+            working_count = SensorStatus.refresh_all_from_blynk()
+            total_count = SensorStatus.objects.count()
+            self.message_user(
+                request,
+                f"Sensor statuses refreshed. Working: {working_count}/{total_count}.",
+            )
+        except Exception as exc:
+            self.message_user(request, f"Sensor refresh failed: {exc}", level="error")
+
+    def working_badge(self, obj):
+        color = "#16a34a" if obj.is_working else "#dc2626"
+        text = "Working" if obj.is_working else "Not Working"
+        return format_html(
+            '<span style="display:inline-block;padding:2px 8px;border-radius:12px;color:white;background:{};">{}</span>',
+            color,
+            text,
+        )
+
+    working_badge.short_description = "Status"
+
+    def _refresh_if_needed(self, force=False):
+        now = time.monotonic()
+        should_refresh = force or (now - self._last_refresh_mono >= self._refresh_interval_seconds)
+        if not should_refresh:
+            return
+        SensorStatus.refresh_all_from_blynk()
+        self._last_refresh_mono = now
+
+    def changelist_view(self, request, extra_context=None):
+        try:
+            self._refresh_if_needed(force=True)
+        except Exception:
+            pass
+        return super().changelist_view(request, extra_context=extra_context)
+
+    def get_queryset(self, request):
+        SensorStatus.ensure_default_records()
+        return super().get_queryset(request)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False

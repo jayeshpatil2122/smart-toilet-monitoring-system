@@ -56,6 +56,7 @@ INSTALLED_APPS = [
     'toilets',
     'complaints',
     'workers',
+    'payments',
 ]
 
 
@@ -108,7 +109,7 @@ WSGI_APPLICATION = 'core.wsgi.application'
 
 DATABASES = {
     'default': dj_database_url.config(
-        default='sqlite:///db.sqlite3',
+        default=f"sqlite:///{(BASE_DIR / 'db.sqlite3').resolve().as_posix()}",
         conn_max_age=600
     )
 }
@@ -173,7 +174,36 @@ CORS_ALLOW_ALL_ORIGINS = True
 
 
 # ==============================
+# RAZORPAY
+# ==============================
+
+RAZORPAY_KEY_ID = os.environ.get("RAZORPAY_KEY_ID", "rzp_test_ScwQdV0rAVCdZz")
+RAZORPAY_KEY_SECRET = os.environ.get("RAZORPAY_KEY_SECRET", "A66AIPJkazeJV05Plo78T2oq")
+
+
+# ==============================
 # DEFAULT AUTO FIELD
 # ==============================
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+
+# ==============================
+# BLYNK SENSOR INTEGRATION
+# ==============================
+
+BLYNK_AUTH_TOKEN = os.environ.get(
+    "BLYNK_AUTH_TOKEN",
+    "RwI3gTiTO-FUZYMjkE0rEYfG1VRWGKID",
+)
+BLYNK_GAS_PIN = os.environ.get("BLYNK_GAS_PIN", "V0")
+BLYNK_WATER_PIN = os.environ.get("BLYNK_WATER_PIN", "V1")
+BLYNK_DUSTBIN_PIN = os.environ.get("BLYNK_DUSTBIN_PIN", "V2")
+BLYNK_PEOPLE_PIN = os.environ.get("BLYNK_PEOPLE_PIN", "V3")
+BLYNK_MOTION_PIN = os.environ.get("BLYNK_MOTION_PIN", "V4")
+
+BLYNK_GAS_HIGH_THRESHOLD = float(os.environ.get("BLYNK_GAS_HIGH_THRESHOLD", 70))
+BLYNK_DUSTBIN_FULL_THRESHOLD = float(os.environ.get("BLYNK_DUSTBIN_FULL_THRESHOLD", 80))
+BLYNK_WATER_LOW_THRESHOLD = float(os.environ.get("BLYNK_WATER_LOW_THRESHOLD", 20))
+BLYNK_CACHE_TTL_SECONDS = float(os.environ.get("BLYNK_CACHE_TTL_SECONDS", 1.0))
+BLYNK_REQUEST_TIMEOUT_SECONDS = float(os.environ.get("BLYNK_REQUEST_TIMEOUT_SECONDS", 1.2))
