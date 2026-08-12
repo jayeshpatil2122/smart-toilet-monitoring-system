@@ -1,11 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import axios from "axios";
+import { TOILETS_API_BASE } from "../config/api";
 import "./SimulationApp.css";
-
-const API_BASE = (
-  process.env.REACT_APP_API_URL?.trim() || "http://127.0.0.1:8000"
-).replace(/\/+$/, "");
-const TOILETS_API_BASE = `${API_BASE}/api/toilets`;
 const FRONTEND_ORIGIN = window.location.origin;
 const SIMULATION_SCAN_PATH_PREFIX = "/simulation/scan";
 const APP_NAME = "SANITRAX";

@@ -1,12 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import { QrReader } from "react-qr-reader";
+import { PAYMENTS_API_BASE } from "../config/api";
 import "./PaymentWorkerApp.css";
-
-const API_BASE = (
-  process.env.REACT_APP_API_URL?.trim() || "http://127.0.0.1:8000"
-).replace(/\/+$/, "");
-const PAYMENTS_API_BASE = `${API_BASE}/api/payments`;
 
 const formatCurrency = (value) => {
   const amount = Number(value || 0);

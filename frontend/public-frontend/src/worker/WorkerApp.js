@@ -4,14 +4,13 @@ import WorkerComplaintMap from "./WorkerComplaintMap";
 import ParallaxStarsBackground from "../components/ParallaxStarsBackground";
 import PaymentWorkerApp from "./PaymentWorkerApp";
 import { FIXED_LOCATION, buildMapsDirectionUrl } from "../constants/fixedLocation";
+import {
+  API_BASE,
+  COMPLAINTS_API_BASE,
+  TOILETS_API_BASE,
+  WORKER_API_BASE,
+} from "../config/api";
 import "./WorkerApp.css";
-
-const API_BASE = (
-  process.env.REACT_APP_API_URL?.trim() || "http://127.0.0.1:8000"
-).replace(/\/+$/, "");
-const WORKER_API_BASE = `${API_BASE}/api/workers`;
-const COMPLAINT_API_BASE = `${API_BASE}/api/complaints`;
-const TOILETS_API_BASE = `${API_BASE}/api/toilets`;
 const DASHBOARD_TAB_ASSIGNED = "assigned";
 const DASHBOARD_TAB_ALERTS = "alerts";
 const DASHBOARD_TAB_RANKING = "ranking";
@@ -484,7 +483,7 @@ function WorkerApp() {
   const fetchRanking = useCallback(async () => {
     setLoadingRanking(true);
     try {
-      const response = await axios.get(`${COMPLAINT_API_BASE}/staff-performance/`);
+      const response = await axios.get(`${COMPLAINTS_API_BASE}/staff-performance/`);
       setRanking(response.data || []);
     } catch (err) {
       setError(err?.response?.data?.detail || "Could not load ranking data.");

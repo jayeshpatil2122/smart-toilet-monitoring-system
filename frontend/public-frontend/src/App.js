@@ -6,15 +6,13 @@ import ComplaintForm from "./ComplaintForm.js";
 import ToiletMap from "./components/ToiletMap";
 import ParallaxStarsBackground from "./components/ParallaxStarsBackground";
 import { FIXED_LOCATION, buildMapsDirectionUrl } from "./constants/fixedLocation";
+import {
+  COMPLAINTS_API_BASE,
+  PAYMENTS_API_BASE,
+  PORTAL_API_BASE,
+  TOILETS_API_BASE,
+} from "./config/api";
 import "./App.css";
-
-const API_BASE = (
-  process.env.REACT_APP_API_URL?.trim() || "http://127.0.0.1:8000"
-).replace(/\/+$/, "");
-const PORTAL_API_BASE = `${API_BASE}/api/workers/portal`;
-const COMPLAINTS_API_BASE = `${API_BASE}/api/complaints`;
-const TOILETS_API_BASE = `${API_BASE}/api/toilets`;
-const PAYMENTS_API_BASE = `${API_BASE}/api/payments`;
 const APP_NAME = "SANITRAX";
 const SPLASH_DURATION_MS = 3000;
 const GOOGLE_CLIENT_ID = (

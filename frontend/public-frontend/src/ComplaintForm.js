@@ -1,10 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import axios from "axios";
-
-const API_BASE = (
-  process.env.REACT_APP_API_URL?.trim() || "http://127.0.0.1:8000"
-).replace(/\/+$/, "");
-const COMPLAINTS_API_BASE = `${API_BASE}/api/complaints`;
+import { COMPLAINTS_API_BASE } from "./config/api";
 
 function ComplaintForm({ toiletId, portalToken = "", onComplaintSubmitted = null }) {
   const [issueType, setIssueType] = useState("Dirty");
