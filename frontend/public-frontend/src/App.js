@@ -349,7 +349,7 @@ function App() {
         headers: { Authorization: `Token ${portalToken}` },
       })
       .then((response) => {
-        setToilets(response.data);
+        setToilets(Array.isArray(response.data) ? response.data : []);
         setLoading(false);
       })
       .catch((error) => {
@@ -372,7 +372,7 @@ function App() {
         })
         .then((response) => {
           if (!isDisposed) {
-            setToilets(response.data);
+            setToilets(Array.isArray(response.data) ? response.data : []);
           }
         })
         .catch((error) => {
