@@ -51,39 +51,50 @@ def get_complaints(request):
 
 @api_view(["POST"])
 def create_complaint(request):
+    skip_ai_raw = str(request.data.get("skip_ai", "") or "").lower()
+    skip_ai = skip_ai_raw in ("true", "1", "yes")
+
     uploaded_image = request.FILES.get("image")
-    if not uploaded_image:
+    if not uploaded_image and not skip_ai:
         return Response(
             {"detail": "Capture and upload live toilet image before submitting complaint."},
             status=400,
         )
 
-    content_type = str(getattr(uploaded_image, "content_type", "") or "").lower()
-    if content_type and not content_type.startswith("image/"):
-        return Response({"detail": "Invalid file type. Upload a valid image."}, status=400)
+    if uploaded_image:
+        content_type = str(getattr(uploaded_image, "content_type", "") or "").lower()
+        if content_type and not content_type.startswith("image/"):
+            return Response({"detail": "Invalid file type. Upload a valid image."}, status=400)
 
     temp_image_path = None
     verification_result = None
 
-    try:
-        temp_image_path = _save_upload_to_temp_file(uploaded_image, default_suffix=".jpg")
+    if skip_ai:
+        verification_result = {
+            "approved": True,
+            "message": "AI Verification skipped (Demo mode).",
+            "checks": {"demo_bypass": True},
+        }
+    elif uploaded_image:
         try:
-            verification_result = verify_complaint_image(temp_image_path)
-        except Exception as exc:
-            verification_result = {
-                "approved": False,
-                "message": f"Rejected: Complaint image AI verification failed. {exc}",
-                "checks": {},
-            }
-    finally:
-        if temp_image_path and os.path.exists(temp_image_path):
-            os.remove(temp_image_path)
-        try:
-            uploaded_image.seek(0)
-        except Exception:
-            pass
+            temp_image_path = _save_upload_to_temp_file(uploaded_image, default_suffix=".jpg")
+            try:
+                verification_result = verify_complaint_image(temp_image_path)
+            except Exception as exc:
+                verification_result = {
+                    "approved": False,
+                    "message": f"Rejected: Complaint image AI verification failed. {exc}",
+                    "checks": {},
+                }
+        finally:
+            if temp_image_path and os.path.exists(temp_image_path):
+                os.remove(temp_image_path)
+            try:
+                uploaded_image.seek(0)
+            except Exception:
+                pass
 
-    if not verification_result.get("approved"):
+    if verification_result and not verification_result.get("approved"):
         return Response(
             {
                 "detail": verification_result.get(

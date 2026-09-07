@@ -45,6 +45,86 @@
 {% endif %}
 {% endblock %}
 
+{% block userlinks %}
+  <span style="margin-right: 14px;">🌐 Language: 
+    <select id="admin-lang-selector" onchange="localStorage.setItem('sanitrax_language', this.value); location.reload();" style="background:#0f2740; color:#e0f2fe; border:1px solid #38bdf8; border-radius:4px; padding:2px 6px; font-weight:600; cursor:pointer;">
+      <option value="en">English 🇬🇧</option>
+      <option value="mr">मराठी 🇮🇳</option>
+      <option value="hi">हिन्दी 🇮🇳</option>
+    </select>
+    <script>
+      (function(){
+        var l = localStorage.getItem('sanitrax_language') || 'en';
+        var sel = document.getElementById('admin-lang-selector');
+        if (sel) sel.value = l;
+
+        if (l === 'mr') {
+          var dict = {
+            "Analytics & Graphs": "📊 विश्लेषण आणि आलेख",
+            "Site administration": "प्रणाली प्रशासक डॅशबोर्ड",
+            "Django administration": "SANITRAX अॅडमिनिस्ट्रेशन",
+            "Recent actions": "अलीकडील कृती",
+            "My actions": "माझ्या कृती",
+            "None available": "उपलब्ध नाही",
+            "Add": "जोडा",
+            "Change": "बदला",
+            "Delete": "हटवा",
+            "View": "पहा",
+            "Toilets": "शौचालये",
+            "Complaints": "तक्रारी",
+            "Cleaning histories": "स्वच्छता इतिहास",
+            "Sensor failure logs": "सेन्सर अयशस्वी नोंदी",
+            "Users": "वापरकर्ते",
+            "Groups": "गट",
+            "Total Toilets": "एकूण शौचालये",
+            "Online Sensors": "ऑनलाइन सेन्सर्स",
+            "Sensor Alerts": "सेन्सर इशारे",
+            "Open Complaints": "उघड्या तक्रारी",
+            "Resolved Complaints": "सोडवलेल्या तक्रारी",
+            "Cleanings Done": "झालेली स्वच्छता",
+            "Toilet Cleanliness Status": "शौचालय स्वच्छता स्थिती",
+            "Sensor Health Status": "सेन्सर आरोग्य स्थिती",
+            "Admin Panel Analytics & Graphs": "📊 अॅडमिन पॅनेल विश्लेषण आणि आलेख",
+            "Back to Admin Console": "← अॅडमिन कन्सोलवर परत जा",
+            "Cleanliness Score": "स्वच्छता गुण",
+            "Total Complaints": "एकूण तक्रारी",
+            "Resolution Rate": "निवारण दर",
+            "Sensor Health": "सेन्सर आरोग्य",
+            "Cleaning Activities": "स्वच्छता उपक्रम",
+            "Recent Cleaning Log Summary": "अलीकडील स्वच्छता नोंद सारांश",
+            "Sensor Failure Alerts": "सेन्सर अयशस्वी इशारे",
+            "All sensors and system facilities are operating normally.": "सर्व सेन्सर्स आणि सुविधा सुरळीत कार्यरत आहेत.",
+            "All sensors are operating normally.": "सर्व सेन्सर्स सुरळीत कार्यरत आहेत.",
+            "Change password": "पासवर्ड बदला",
+            "Log out": "लॉग आउट"
+          };
+
+          function translateNode(node) {
+            if (node.nodeType === Node.TEXT_NODE) {
+              var trimmed = node.nodeValue.trim();
+              if (dict[trimmed]) {
+                node.nodeValue = node.nodeValue.replace(trimmed, dict[trimmed]);
+              }
+            } else if (node.nodeType === Node.ELEMENT_NODE && node.tagName !== 'SCRIPT' && node.tagName !== 'STYLE') {
+              for (var i = 0; i < node.childNodes.length; i++) {
+                translateNode(node.childNodes[i]);
+              }
+            }
+          }
+
+          document.addEventListener("DOMContentLoaded", function() {
+            setTimeout(function() {
+              translateNode(document.body);
+            }, 100);
+          });
+        }
+      })();
+    </script>
+  </span>
+  <a href="{% url 'admin_analytics' %}" style="color: #93c5fd; font-weight: 700; margin-right: 14px; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;">📊 Analytics & Graphs</a>
+  {{ block.super }}
+{% endblock %}
+
 {% block nav-global %}{% endblock %}
 
 {% block footer %}

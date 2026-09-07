@@ -1,0 +1,440 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block title %}Analytics & Graphs | {{ site_title }}{% endblock %}
+
+{% block extrastyle %}
+{{ block.super }}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+  .analytics-container {
+    padding: 24px 32px;
+    max-width: 1400px;
+    margin: 0 auto;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    color: #1e293b;
+  }
+  .analytics-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+    padding-bottom: 16px;
+    border-bottom: 2px solid #e2e8f0;
+  }
+  .analytics-header h1 {
+    font-size: 1.8rem;
+    font-weight: 800;
+    color: #0f172a;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .back-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    background: #0f2c49;
+    color: #ffffff !important;
+    border-radius: 8px;
+    font-weight: 600;
+    text-decoration: none;
+    transition: background 0.2s ease;
+  }
+  .back-btn:hover {
+    background: #1e40af;
+  }
+
+  /* Sensor Failure Banner */
+  .sensor-alert-banner {
+    background: #fef2f2;
+    border: 1px solid #fca5a5;
+    border-left: 6px solid #ef4444;
+    border-radius: 12px;
+    padding: 18px 20px;
+    margin-bottom: 28px;
+    box-shadow: 0 4px 6px -1px rgba(239, 68, 68, 0.1);
+  }
+  .sensor-alert-banner h2 {
+    margin: 0 0 12px 0;
+    color: #991b1b;
+    font-size: 1.2rem;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .alert-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 14px;
+  }
+  .alert-card {
+    background: #ffffff;
+    border: 1px solid #fecaca;
+    border-radius: 8px;
+    padding: 14px 16px;
+    font-size: 0.92rem;
+    line-height: 1.5;
+  }
+  .alert-card-title {
+    font-weight: 700;
+    color: #b91c1c;
+    margin-bottom: 6px;
+    font-size: 1rem;
+  }
+  .alert-card p {
+    margin: 3px 0;
+    color: #4b5563;
+  }
+  .alert-card strong {
+    color: #1f2937;
+  }
+  .status-tag {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #ffffff;
+    background: #ef4444;
+  }
+
+  /* Stat Summary Cards */
+  .metrics-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 18px;
+    margin-bottom: 32px;
+  }
+  .metric-card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+  .metric-card .title {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .metric-card .value {
+    font-size: 2.2rem;
+    font-weight: 800;
+    color: #0f172a;
+    margin: 8px 0;
+  }
+  .metric-card .subtitle {
+    font-size: 0.82rem;
+    color: #10b981;
+    font-weight: 600;
+  }
+
+  /* Grid Layout for Charts */
+  .charts-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 24px;
+    margin-bottom: 32px;
+  }
+  @media (max-width: 1024px) {
+    .charts-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .chart-card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    padding: 22px;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+  }
+  .chart-card.full-width {
+    grid-column: 1 / -1;
+  }
+  .chart-card h3 {
+    margin: 0 0 16px 0;
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: #1e293b;
+    border-bottom: 1px solid #f1f5f9;
+    padding-bottom: 10px;
+  }
+
+  .canvas-wrap {
+    position: relative;
+    width: 100%;
+    min-height: 280px;
+    max-height: 360px;
+  }
+
+  /* Data Tables */
+  .data-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 12px;
+    font-size: 0.9rem;
+  }
+  .data-table th, .data-table td {
+    padding: 10px 14px;
+    text-align: left;
+    border-bottom: 1px solid #f1f5f9;
+  }
+  .data-table th {
+    background: #f8fafc;
+    color: #475569;
+    font-weight: 600;
+  }
+  .data-table tr:hover {
+    background: #f8fafc;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="analytics-container">
+  <div class="analytics-header">
+    <h1>📊 Admin Panel Analytics & Graphs</h1>
+    <a href="{% url 'admin:index' %}" class="back-btn">← Back to Admin Console</a>
+  </div>
+
+  {% if active_failure_alerts %}
+  <!-- FEATURE 1: SENSOR FAILURE ALERT SYSTEM NOTIFICATION BANNER -->
+  <div class="sensor-alert-banner">
+    <h2>⚠ Sensor Failure Alerts ({{ active_failure_alerts|length }})</h2>
+    <div class="alert-grid">
+      {% for alert in active_failure_alerts %}
+      <div class="alert-card">
+        <div class="alert-card-title">⚠ Sensor Failure</div>
+        <p><strong>Sensor:</strong> {{ alert.sensor_name }}</p>
+        <p><strong>Toilet:</strong> {{ alert.toilet_name }}</p>
+        <p><strong>Status:</strong> <span class="status-tag">{{ alert.status }}</span></p>
+        <p><strong>Reason:</strong> {{ alert.failure_reason|default:"No response received" }}</p>
+        <p><strong>Failed:</strong> {{ alert.failed_at|date:"j F Y, g:i A" }}</p>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- METRIC STAT CARDS -->
+  <div class="metrics-row">
+    <div class="metric-card">
+      <div class="title">Cleanliness Score</div>
+      <div class="value">{{ clean_toilets }}/{{ total_toilets }}</div>
+      <div class="subtitle">Toilets in Clean State</div>
+    </div>
+    <div class="metric-card">
+      <div class="title">Total Complaints</div>
+      <div class="value">{{ total_complaints }}</div>
+      <div class="subtitle" style="color: #3b82f6;">{{ pending_complaints }} Pending | {{ resolved_complaints }} Resolved</div>
+    </div>
+    <div class="metric-card">
+      <div class="title">Resolution Rate</div>
+      <div class="value">{{ resolution_rate }}%</div>
+      <div class="subtitle">Avg {{ avg_resolution_hours }}h to Resolve</div>
+    </div>
+    <div class="metric-card">
+      <div class="title">Sensor Health</div>
+      <div class="value">{{ online_sensors }}/{{ total_sensors }}</div>
+      <div class="subtitle" style="color: {% if failed_sensors_count > 0 %}#ef4444{% else %}#10b981{% endif %};">
+        {% if failed_sensors_count > 0 %}{{ failed_sensors_count }} Failure Alert(s){% else %}All Sensors Online{% endif %}
+      </div>
+    </div>
+    <div class="metric-card">
+      <div class="title">Cleaning Activities</div>
+      <div class="value">{{ total_cleanings }}</div>
+      <div class="subtitle" style="color: #8b5cf6;">Recorded Cleanings</div>
+    </div>
+  </div>
+
+  <!-- FEATURE 2: ANALYTICS & GRAPHS GRID -->
+  <div class="charts-grid">
+    <!-- 1. Toilet Cleanliness Analytics -->
+    <div class="chart-card">
+      <h3>1. Toilet Cleanliness Analytics</h3>
+      <div class="canvas-wrap">
+        <canvas id="cleanlinessChart"></canvas>
+      </div>
+    </div>
+
+    <!-- 2. Complaint Status Distribution Analytics -->
+    <div class="chart-card">
+      <h3>2. Complaint Status Distribution</h3>
+      <div class="canvas-wrap">
+        <canvas id="complaintStatusChart"></canvas>
+      </div>
+    </div>
+
+    <!-- 3. Complaints per Toilet Analytics -->
+    <div class="chart-card">
+      <h3>3. Complaints by Washroom</h3>
+      <div class="canvas-wrap">
+        <canvas id="complaintToiletChart"></canvas>
+      </div>
+    </div>
+
+    <!-- 4. Sensor Status Analytics -->
+    <div class="chart-card">
+      <h3>4. Sensor Status Analytics</h3>
+      <div class="canvas-wrap">
+        <canvas id="sensorStatusChart"></canvas>
+      </div>
+    </div>
+
+    <!-- 5. Cleaning Activity Analytics -->
+    <div class="chart-card full-width">
+      <h3>5. Cleaning Activity Analytics</h3>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+        <div class="canvas-wrap">
+          <canvas id="cleaningActivityChart"></canvas>
+        </div>
+        <div>
+          <h4 style="margin:0 0 10px 0; color: #475569;">Recent Cleaning Log Summary</h4>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Toilet</th>
+                <th>Date & Time</th>
+                <th>Status</th>
+                <th>Cleaned By</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for log in recent_cleanings %}
+              <tr>
+                <td><strong>{{ log.toilet.name }}</strong></td>
+                <td>{{ log.cleaned_at|date:"d M Y, h:i A" }}</td>
+                <td><span style="color: #16a34a; font-weight:700;">{{ log.status }}</span></td>
+                <td>{{ log.cleaned_by.username|default:"System / Admin" }}</td>
+              </tr>
+              {% empty %}
+              <tr>
+                <td colspan="4" style="text-align: center; color: #94a3b8;">No cleaning activity recorded yet.</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    // 1. Toilet Cleanliness Chart
+    const cleanlinessCtx = document.getElementById('cleanlinessChart').getContext('2d');
+    new Chart(cleanlinessCtx, {
+      type: 'doughnut',
+      data: {
+        labels: ['Clean (>=70%)', 'Moderate (40-69%)', 'Dirty (<40%)'],
+        datasets: [{
+          data: [{{ clean_toilets }}, {{ moderate_toilets }}, {{ dirty_toilets }}],
+          backgroundColor: ['#10b981', '#f59e0b', '#ef4444'],
+          borderWidth: 2
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { position: 'bottom' } }
+      }
+    });
+
+    // 2. Complaint Status Chart
+    const statusCtx = document.getElementById('complaintStatusChart').getContext('2d');
+    new Chart(statusCtx, {
+      type: 'pie',
+      data: {
+        labels: ['Pending', 'In Progress', 'Resolved'],
+        datasets: [{
+          data: [{{ pending_complaints }}, {{ in_progress_complaints }}, {{ resolved_complaints }}],
+          backgroundColor: ['#ef4444', '#f59e0b', '#10b981'],
+          borderWidth: 2
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { position: 'bottom' } }
+      }
+    });
+
+    // 3. Complaints by Toilet Bar Chart
+    const complaintToiletData = {{ complaints_by_toilet|safe }};
+    const toiletLabels = complaintToiletData.map(item => item.toilet__name || 'Unknown');
+    const toiletTotals = complaintToiletData.map(item => item.total);
+
+    const toiletCtx = document.getElementById('complaintToiletChart').getContext('2d');
+    new Chart(toiletCtx, {
+      type: 'bar',
+      data: {
+        labels: toiletLabels.length > 0 ? toiletLabels : ['No Complaints Recorded'],
+        datasets: [{
+          label: 'Total Complaints',
+          data: toiletTotals.length > 0 ? toiletTotals : [0],
+          backgroundColor: '#3b82f6',
+          borderRadius: 6
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: { y: { beginAtZero: true, precision: 0 } }
+      }
+    });
+
+    // 4. Sensor Status Pie Chart
+    const sensorCtx = document.getElementById('sensorStatusChart').getContext('2d');
+    new Chart(sensorCtx, {
+      type: 'doughnut',
+      data: {
+        labels: ['Online / Healthy', 'Offline / No Response', 'Failed / Invalid Data'],
+        datasets: [{
+          data: [{{ online_sensors }}, {{ offline_sensors }}, {{ failed_sensors_count }}],
+          backgroundColor: ['#10b981', '#64748b', '#ef4444'],
+          borderWidth: 2
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { position: 'bottom' } }
+      }
+    });
+
+    // 5. Cleaning Activity Chart
+    const cleaningData = {{ cleanings_by_toilet|safe }};
+    const cleanLabels = cleaningData.map(item => item.toilet__name || 'Unknown');
+    const cleanCounts = cleaningData.map(item => item.count);
+
+    const cleanCtx = document.getElementById('cleaningActivityChart').getContext('2d');
+    new Chart(cleanCtx, {
+      type: 'bar',
+      data: {
+        labels: cleanLabels.length > 0 ? cleanLabels : ['No Cleanings'],
+        datasets: [{
+          label: 'Cleanings Count',
+          data: cleanCounts.length > 0 ? cleanCounts : [0],
+          backgroundColor: '#8b5cf6',
+          borderRadius: 6
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: { y: { beginAtZero: true, precision: 0 } }
+      }
+    });
+  });
+</script>
+{% endblock %}

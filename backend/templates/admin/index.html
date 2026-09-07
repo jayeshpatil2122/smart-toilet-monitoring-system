@@ -1,0 +1,333 @@
+{% extends "admin/base_site.html" %}
+{% load i18n static %}
+
+{% block extrastyle %}
+{{ block.super }}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+  .dashboard-live-overview {
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 14px;
+    padding: 24px;
+    margin-bottom: 30px;
+    box-shadow: 0 4px 12px rgba(15, 44, 73, 0.08);
+  }
+  .live-overview-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 16px;
+    margin-bottom: 20px;
+    border-bottom: 2px solid #f1f5f9;
+  }
+  .live-overview-header h2 {
+    margin: 0;
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: #0f2c49;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .live-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    border-radius: 999px;
+    background: #ecfdf5;
+    border: 1px solid #6ee7b7;
+    color: #065f46;
+    font-weight: 700;
+    font-size: 0.88rem;
+  }
+  .live-pulse {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #10b981;
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+    animation: pulse 1.6s infinite;
+  }
+  @keyframes pulse {
+    0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+    70% { transform: scale(1); box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
+    100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+  }
+
+  /* Compact Active System Alerts Box */
+  .active-system-alerts-box {
+    background: #fef2f2;
+    border: 1px solid #fca5a5;
+    border-left: 6px solid #ef4444;
+    border-radius: 10px;
+    padding: 16px 20px;
+    margin-bottom: 24px;
+  }
+  .active-system-alerts-box.all-healthy {
+    background: #f0fdf4;
+    border: 1px solid #86efac;
+    border-left: 6px solid #22c55e;
+  }
+  .active-system-alerts-box h3 {
+    margin: 0 0 10px 0;
+    font-size: 1.05rem;
+    font-weight: 800;
+    color: #991b1b;
+  }
+  .active-system-alerts-box.all-healthy h3 {
+    color: #166534;
+  }
+  .alert-item-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .alert-item-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    background: #ffffff;
+    border: 1px solid #fecaca;
+    border-radius: 6px;
+    font-size: 0.9rem;
+  }
+
+  /* Metric Cards Grid */
+  .dash-metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  .dash-card {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 16px;
+    text-align: center;
+  }
+  .dash-card-title {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .dash-card-value {
+    font-size: 2rem;
+    font-weight: 800;
+    color: #0f2c49;
+    margin: 6px 0;
+  }
+
+  /* Interactive Dashboard Charts Grid */
+  .dash-charts-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+  @media (max-width: 900px) {
+    .dash-charts-grid { grid-template-columns: 1fr; }
+  }
+  .dash-chart-box {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 16px;
+    min-height: 260px;
+  }
+  .dash-chart-box h4 {
+    margin: 0 0 12px 0;
+    font-size: 1rem;
+    font-weight: 700;
+    color: #334155;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="content-main">
+  <!-- ISSUE 4 & ISSUE 1: PROMINENT LIVE ANALYTICS & ACTIVE SYSTEM ALERTS AT TOP OF DASHBOARD -->
+  <div class="dashboard-live-overview">
+    <div class="live-overview-header">
+      <h2>📊 SANITRAX Live System Overview</h2>
+      <div class="live-indicator">
+        <span class="live-pulse"></span>
+        <span>🟢 LIVE SYSTEM</span>
+        <small id="live-timestamp-text" style="color: #475569; font-weight: normal; margin-left: 6px;"></small>
+      </div>
+    </div>
+
+    <!-- ACTIVE SYSTEM ALERTS BANNER -->
+    <div id="active-alerts-container" class="active-system-alerts-box all-healthy">
+      <h3 id="alerts-box-header">🟢 ACTIVE SYSTEM ALERTS</h3>
+      <div id="alerts-box-content">
+        <p style="margin:0; color: #15803d; font-weight:600;">🟢 All sensors and system facilities are operating normally.</p>
+      </div>
+    </div>
+
+    <!-- DASHBOARD STAT METRIC CARDS -->
+    <div class="dash-metrics-grid">
+      <div class="dash-card">
+        <div class="dash-card-title">Total Toilets</div>
+        <div class="dash-card-value" id="stat-total-toilets">-</div>
+      </div>
+      <div class="dash-card">
+        <div class="dash-card-title">Online Sensors</div>
+        <div class="dash-card-value" id="stat-online-sensors" style="color: #16a34a;">-</div>
+      </div>
+      <div class="dash-card">
+        <div class="dash-card-title">Sensor Alerts</div>
+        <div class="dash-card-value" id="stat-sensor-alerts" style="color: #dc2626;">-</div>
+      </div>
+      <div class="dash-card">
+        <div class="dash-card-title">Open Complaints</div>
+        <div class="dash-card-value" id="stat-open-complaints" style="color: #d97706;">-</div>
+      </div>
+      <div class="dash-card">
+        <div class="dash-card-title">Resolved Complaints</div>
+        <div class="dash-card-value" id="stat-resolved-complaints" style="color: #2563eb;">-</div>
+      </div>
+      <div class="dash-card">
+        <div class="dash-card-title">Cleanings Done</div>
+        <div class="dash-card-value" id="stat-cleanings-done" style="color: #7c3aed;">-</div>
+      </div>
+    </div>
+
+    <!-- INTERACTIVE LIVE CHARTS GRID -->
+    <div class="dash-charts-grid">
+      <div class="dash-chart-box">
+        <h4>🚽 Toilet Cleanliness Status</h4>
+        <div style="height: 220px; position: relative;">
+          <canvas id="dashCleanlinessChart"></canvas>
+        </div>
+      </div>
+      <div class="dash-chart-box">
+        <h4>📡 Sensor Health Status</h4>
+        <div style="height: 220px; position: relative;">
+          <canvas id="dashSensorChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    document.addEventListener("DOMContentLoaded", function () {
+      let cleanlinessChartObj = null;
+      let sensorChartObj = null;
+
+      function updateDashboardData() {
+        fetch("/admin/analytics/")
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, "text/html");
+
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            document.getElementById("live-timestamp-text").innerText = "Last updated: " + timeStr;
+
+            // Extract metrics from full analytics view endpoint if available or fetch stats
+          })
+          .catch(() => {});
+
+        // Direct fetch for live metrics JSON
+        fetch("/api/toilets/")
+          .then(res => res.json())
+          .then(toilets => {
+            const totalToilets = toilets.length;
+            const cleanCount = toilets.filter(t => t.cleanliness >= 70).length;
+            const moderateCount = toilets.filter(t => t.cleanliness >= 40 && t.cleanliness < 70).length;
+            const dirtyCount = toilets.filter(t => t.cleanliness < 40).length;
+
+            document.getElementById("stat-total-toilets").innerText = totalToilets;
+
+            if (!cleanlinessChartObj) {
+              const ctx = document.getElementById("dashCleanlinessChart").getContext("2d");
+              cleanlinessChartObj = new Chart(ctx, {
+                type: "doughnut",
+                data: {
+                  labels: ["Clean (>=70%)", "Moderate (40-69%)", "Dirty (<40%)"],
+                  datasets: [{
+                    data: [cleanCount, moderateCount, dirtyCount],
+                    backgroundColor: ["#10b981", "#f59e0b", "#ef4444"]
+                  }]
+                },
+                options: { responsive: true, maintainAspectRatio: false }
+              });
+            } else {
+              cleanlinessChartObj.data.datasets[0].data = [cleanCount, moderateCount, dirtyCount];
+              cleanlinessChartObj.update();
+            }
+          }).catch(() => {});
+
+        fetch("/api/toilets/sensor-status/")
+          .then(res => res.json())
+          .then(sensorData => {
+            document.getElementById("stat-online-sensors").innerText = sensorData.online_sensors || 0;
+            document.getElementById("stat-sensor-alerts").innerText = sensorData.failed_sensors || 0;
+
+            const alertsContainer = document.getElementById("active-alerts-container");
+            const alertsContent = document.getElementById("alerts-box-content");
+
+            if (sensorData.active_alerts && sensorData.active_alerts.length > 0) {
+              alertsContainer.className = "active-system-alerts-box";
+              document.getElementById("alerts-box-header").innerText = "🔴 ACTIVE SYSTEM ALERTS (" + sensorData.active_alerts.length + ")";
+
+              let itemsHtml = '<ul class="alert-item-list">';
+              sensorData.active_alerts.forEach(alert => {
+                itemsHtml += `<li class="alert-item-row">
+                  <div><strong>🔴 ${alert.sensor_name} — ${alert.toilet_name}</strong><br><small>${alert.failure_reason}</small></div>
+                  <span style="color:#b91c1c; font-weight:bold;">${alert.status}</span>
+                </li>`;
+              });
+              itemsHtml += '</ul>';
+              alertsContent.innerHTML = itemsHtml;
+            } else {
+              alertsContainer.className = "active-system-alerts-box all-healthy";
+              document.getElementById("alerts-box-header").innerText = "🟢 ACTIVE SYSTEM ALERTS";
+              alertsContent.innerHTML = '<p style="margin:0; color: #15803d; font-weight:600;">🟢 All sensors are operating normally.</p>';
+            }
+
+            if (!sensorChartObj) {
+              const ctx = document.getElementById("dashSensorChart").getContext("2d");
+              sensorChartObj = new Chart(ctx, {
+                type: "doughnut",
+                data: {
+                  labels: ["Online", "Offline / Failed"],
+                  datasets: [{
+                    data: [sensorData.online_sensors || 0, sensorData.failed_sensors || 0],
+                    backgroundColor: ["#10b981", "#ef4444"]
+                  }]
+                },
+                options: { responsive: true, maintainAspectRatio: false }
+              });
+            } else {
+              sensorChartObj.data.datasets[0].data = [sensorData.online_sensors || 0, sensorData.failed_sensors || 0];
+              sensorChartObj.update();
+            }
+          }).catch(() => {});
+
+        fetch("/api/complaints/dashboard/")
+          .then(res => res.json())
+          .then(cmpData => {
+            document.getElementById("stat-open-complaints").innerText = cmpData.pending_complaints || 0;
+            document.getElementById("stat-resolved-complaints").innerText = cmpData.resolved_complaints || 0;
+          }).catch(() => {});
+      }
+
+      updateDashboardData();
+      setInterval(updateDashboardData, 5000); // 5s lightweight poll
+    });
+  </script>
+
+  <!-- EXISTING DJANGO ADMIN INDEX CONTENT BELOW LIVE OVERVIEW -->
+  {{ block.super }}
+</div>
+{% endblock %}

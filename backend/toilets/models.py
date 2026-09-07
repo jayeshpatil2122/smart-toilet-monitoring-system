@@ -453,4 +453,127 @@ class SensorStatus(models.Model):
                     ]
                 )
 
+        cls.evaluate_sensor_failures(sensors)
         return working_count
+
+    @classmethod
+    def evaluate_sensor_failures(cls, sensors):
+        now = timezone.now()
+        for sensor in sensors:
+            failure_status = None
+            failure_reason = ""
+
+            if not sensor.is_working:
+                err = (sensor.error_message or "").lower()
+                if "no response" in err or "timeout" in err:
+                    failure_status = SensorFailureLog.STATUS_NO_RESPONSE
+                    failure_reason = sensor.error_message or "No response received"
+                elif "missing" in err or "empty" in err:
+                    failure_status = SensorFailureLog.STATUS_OFFLINE
+                    failure_reason = sensor.error_message or "Sensor disconnected / offline"
+                else:
+                    failure_status = SensorFailureLog.STATUS_FAILED
+                    failure_reason = sensor.error_message or "Sensor communication failed"
+            else:
+                try:
+                    num_val = float(sensor.last_value)
+                    if sensor.sensor_key in [SensorStatus.SENSOR_WATER, SensorStatus.SENSOR_DUSTBIN]:
+                        if num_val < 0 or num_val > 100:
+                            failure_status = SensorFailureLog.STATUS_INVALID_DATA
+                            failure_reason = f"Out of range reading: {num_val}"
+                    elif sensor.sensor_key == SensorStatus.SENSOR_GAS:
+                        if num_val < 0 or num_val > 1000:
+                            failure_status = SensorFailureLog.STATUS_INVALID_DATA
+                            failure_reason = f"Out of range gas reading: {num_val}"
+                except (ValueError, TypeError):
+                    if sensor.sensor_key != SensorStatus.SENSOR_MOTION:
+                        failure_status = SensorFailureLog.STATUS_INVALID_DATA
+                        failure_reason = f"Invalid numeric payload: {sensor.last_value}"
+
+            active_log = SensorFailureLog.objects.filter(
+                sensor_type=sensor.sensor_key,
+                is_active=True,
+            ).first()
+
+            if failure_status:
+                if not active_log:
+                    SensorFailureLog.objects.create(
+                        sensor_name=sensor.sensor_name,
+                        sensor_type=sensor.sensor_key,
+                        toilet_name="All Toilets / Main Facility",
+                        status=failure_status,
+                        failure_reason=failure_reason,
+                        failed_at=now,
+                        is_active=True,
+                    )
+                else:
+                    if active_log.status != failure_status or active_log.failure_reason != failure_reason:
+                        active_log.status = failure_status
+                        active_log.failure_reason = failure_reason
+                        active_log.save()
+            else:
+                if active_log:
+                    active_log.mark_recovered()
+
+
+class CleaningHistory(models.Model):
+    toilet = models.ForeignKey(Toilets, on_delete=models.CASCADE, related_name="cleaning_histories")
+    cleaned_at = models.DateTimeField(default=timezone.now)
+    cleaned_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="cleaning_records",
+    )
+    status = models.CharField(max_length=50, default="Cleaned")
+    notes = models.TextField(blank=True, default="")
+
+    class Meta:
+        verbose_name = "Cleaning History"
+        verbose_name_plural = "Cleaning Histories"
+        ordering = ["-cleaned_at"]
+
+    def __str__(self):
+        return f"{self.toilet.name} cleaned on {self.cleaned_at.strftime('%d %B %Y at %I:%M %p')}"
+
+
+class SensorFailureLog(models.Model):
+    STATUS_ONLINE = "ONLINE"
+    STATUS_OFFLINE = "OFFLINE"
+    STATUS_FAILED = "FAILED"
+    STATUS_INVALID_DATA = "INVALID_DATA"
+    STATUS_NO_RESPONSE = "NO_RESPONSE"
+
+    STATUS_CHOICES = [
+        (STATUS_ONLINE, "ONLINE"),
+        (STATUS_OFFLINE, "OFFLINE"),
+        (STATUS_FAILED, "FAILED"),
+        (STATUS_INVALID_DATA, "INVALID_DATA"),
+        (STATUS_NO_RESPONSE, "NO_RESPONSE"),
+    ]
+
+    sensor_name = models.CharField(max_length=100)
+    sensor_type = models.CharField(max_length=50)
+    toilet_name = models.CharField(max_length=100, default="All Toilets / Main Facility")
+    toilet = models.ForeignKey(Toilets, on_delete=models.SET_NULL, null=True, blank=True, related_name="sensor_failures")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_ONLINE)
+    failure_reason = models.CharField(max_length=255, blank=True, default="")
+    failed_at = models.DateTimeField(default=timezone.now)
+    recovered_at = models.DateTimeField(null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        verbose_name = "Sensor Failure Alert"
+        verbose_name_plural = "Sensor Failure Alerts"
+        ordering = ["-failed_at"]
+
+    def __str__(self):
+        return f"{self.sensor_name} - {self.status} ({self.toilet_name})"
+
+    def mark_recovered(self):
+        if self.is_active:
+            self.is_active = False
+            self.recovered_at = timezone.now()
+            self.save()
+

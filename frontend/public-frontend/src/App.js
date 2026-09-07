@@ -5,7 +5,10 @@ import appLogo from "./logo.svg";
 import ComplaintForm from "./ComplaintForm.js";
 import ToiletMap from "./components/ToiletMap";
 import ParallaxStarsBackground from "./components/ParallaxStarsBackground";
-import { FIXED_LOCATION, buildMapsDirectionUrl } from "./constants/fixedLocation";
+import { buildMapsDirectionUrl } from "./constants/fixedLocation";
+import LanguageModal from "./components/LanguageModal";
+import NearestToiletsSection from "./components/NearestToiletsSection";
+import { getStoredLanguage, setStoredLanguage, t } from "./constants/translations";
 import {
   COMPLAINTS_API_BASE,
   PAYMENTS_API_BASE,
@@ -300,11 +303,93 @@ function App() {
   const [paymentProcessingService, setPaymentProcessingService] = useState("");
   const [paymentReceipt, setPaymentReceipt] = useState(null);
 
+  const [language, setLanguage] = useState(getStoredLanguage());
+  const [showLanguageModal, setShowLanguageModal] = useState(false);
+
+  const [userLocation, setUserLocation] = useState(null);
+  const [locationState, setLocationState] = useState({
+    loading: true,
+    error: null,
+    permissionStatus: "prompt",
+  });
+  const watchIdRef = useRef(null);
+
   const voiceRecognitionRef = useRef(null);
   const welcomeSpokenTokenRef = useRef("");
   const cleanestListRef = useRef(null);
   const disabledListRef = useRef(null);
   const toiletRefreshInFlightRef = useRef(false);
+
+  const startWatchingLocation = useCallback(() => {
+    if (!navigator.geolocation) {
+      setLocationState({
+        loading: false,
+        error: "Geolocation is not supported by your browser.",
+        permissionStatus: "unavailable",
+      });
+      return;
+    }
+
+    setLocationState((prev) => ({ ...prev, loading: true, error: null }));
+
+    const options = {
+      enableHighAccuracy: true,
+      maximumAge: 5000,
+      timeout: 10000,
+    };
+
+    const handleSuccess = (position) => {
+      const { latitude, longitude, accuracy } = position.coords;
+      setUserLocation({
+        latitude,
+        longitude,
+        accuracy,
+      });
+      setLocationState({
+        loading: false,
+        error: null,
+        permissionStatus: "granted",
+      });
+    };
+
+    const handleError = (error) => {
+      let message = "Unable to detect your location.";
+      let status = "error";
+
+      if (error.code === error.PERMISSION_DENIED) {
+        message = "Location access is required to show nearby toilets.";
+        status = "denied";
+      } else if (error.code === error.POSITION_UNAVAILABLE) {
+        message = "Location information is currently unavailable.";
+        status = "unavailable";
+      } else if (error.code === error.TIMEOUT) {
+        message = "Location request timed out. Please try again.";
+        status = "timeout";
+      }
+
+      setLocationState({
+        loading: false,
+        error: message,
+        permissionStatus: status,
+      });
+    };
+
+    navigator.geolocation.getCurrentPosition(handleSuccess, handleError, options);
+
+    if (watchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+    }
+    watchIdRef.current = navigator.geolocation.watchPosition(handleSuccess, handleError, options);
+  }, []);
+
+  useEffect(() => {
+    startWatchingLocation();
+    return () => {
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+      }
+    };
+  }, [startWatchingLocation]);
 
   const [myComplaints, setMyComplaints] = useState([]);
   const [complaintsLoading, setComplaintsLoading] = useState(false);
@@ -337,17 +422,10 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!portalToken) {
-      setToilets([]);
-      setLoading(false);
-      return;
-    }
-
     setLoading(true);
+    const headers = portalToken ? { Authorization: `Token ${portalToken}` } : {};
     axios
-      .get(`${TOILETS_API_BASE}/`, {
-        headers: { Authorization: `Token ${portalToken}` },
-      })
+      .get(`${TOILETS_API_BASE}/`, { headers })
       .then((response) => {
         setToilets(Array.isArray(response.data) ? response.data : []);
         setLoading(false);
@@ -359,17 +437,14 @@ function App() {
   }, [portalToken]);
 
   useEffect(() => {
-    if (!portalToken) return undefined;
-
     let isDisposed = false;
     const intervalId = setInterval(() => {
       if (toiletRefreshInFlightRef.current) return;
       toiletRefreshInFlightRef.current = true;
 
+      const headers = portalToken ? { Authorization: `Token ${portalToken}` } : {};
       axios
-        .get(`${TOILETS_API_BASE}/`, {
-          headers: { Authorization: `Token ${portalToken}` },
-        })
+        .get(`${TOILETS_API_BASE}/`, { headers })
         .then((response) => {
           if (!isDisposed) {
             setToilets(Array.isArray(response.data) ? response.data : []);
@@ -1055,8 +1130,9 @@ function App() {
   );
 
   const nearbyToiletsByDistance = useMemo(() => {
-    const baseLat = Number(FIXED_LOCATION.latitude);
-    const baseLng = Number(FIXED_LOCATION.longitude);
+    if (!userLocation?.latitude || !userLocation?.longitude) return [];
+    const baseLat = Number(userLocation.latitude);
+    const baseLng = Number(userLocation.longitude);
     if (!Number.isFinite(baseLat) || !Number.isFinite(baseLng)) return [];
 
     return [...mappableToilets]
@@ -1070,7 +1146,7 @@ function App() {
         ),
       }))
       .sort((first, second) => first.distanceKm - second.distanceKm);
-  }, [mappableToilets]);
+  }, [mappableToilets, userLocation]);
 
   const nearbyToiletsForMap = useMemo(
     () => nearbyToiletsByDistance.slice(0, 5),
@@ -1250,22 +1326,47 @@ function App() {
     setFocusedToiletId(null);
   };
 
-  const requestCurrentPosition = () =>
-    Promise.resolve({
-      coords: {
-        latitude: FIXED_LOCATION.latitude,
-        longitude: FIXED_LOCATION.longitude,
-      },
+  const requestCurrentPosition = () => {
+    return new Promise((resolve, reject) => {
+      if (userLocation?.latitude && userLocation?.longitude) {
+        resolve({
+          coords: {
+            latitude: userLocation.latitude,
+            longitude: userLocation.longitude,
+            accuracy: userLocation.accuracy,
+          },
+        });
+        return;
+      }
+      if (!navigator.geolocation) {
+        reject(new Error("Geolocation is not supported by your browser."));
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        resolve,
+        reject,
+        { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
+      );
     });
+  };
 
   const handleShowNearbyToilet = () => {
     setMapFilterMessage("");
     setActiveSection("map");
     setDisabledFriendlyRankings([]);
 
+    if (!userLocation?.latitude || !userLocation?.longitude) {
+      startWatchingLocation();
+      setMapFilterMode("default");
+      setMapFilterMessage(
+        locationState.error || "Location access is required to show nearby toilets."
+      );
+      return;
+    }
+
     if (nearbyToiletsByDistance.length === 0) {
       setMapFilterMode("default");
-      setMapFilterMessage("No toilets with location coordinates are available.");
+      setMapFilterMessage("No toilets with location coordinates are available near your position.");
       return;
     }
 
@@ -1284,10 +1385,14 @@ function App() {
     setShowAllToilets(false);
     setDetailsOnlyId(null);
     setFocusedToiletId(null);
+
+    const formattedDistance =
+      nearestToilet.distanceKm < 1
+        ? `${Math.round(nearestToilet.distanceKm * 1000)} meters`
+        : `${nearestToilet.distanceKm.toFixed(2)} kilometers`;
+
     speakText(
-      `Nearest toilet is ${nearestToilet.name}, approximately ${nearestToilet.distanceKm.toFixed(
-        2
-      )} kilometers away.`
+      `Nearest toilet is ${nearestToilet.name}, approximately ${formattedDistance} away.`
     );
   };
 
@@ -1356,7 +1461,9 @@ function App() {
     if (rankedToilets.length === 0) {
       setMapFilterMode("default");
       setDisabledFriendlyRankings([]);
-      setMapFilterMessage("No nearby disabled-friendly toilets are available right now.");
+      setMapFilterMessage(
+        locationState.error || "Unable to determine your location to find disabled-friendly toilets."
+      );
       return;
     }
 
@@ -1374,6 +1481,8 @@ function App() {
         const distanceLine =
           rankedToilets[0].distanceKm === null
             ? "Distance is unavailable."
+            : rankedToilets[0].distanceKm < 1
+            ? `It is ${Math.round(rankedToilets[0].distanceKm * 1000)} meters away.`
             : `It is ${rankedToilets[0].distanceKm.toFixed(2)} kilometers away.`;
         speakText(
           `Nearest disabled-friendly option is ${firstToilet.name}. ${distanceLine}`
@@ -1391,7 +1500,15 @@ function App() {
 
   const handleNavigateToToilet = (toilet) => {
     if (!toilet || !hasCoordinates(toilet)) return;
-    window.open(buildMapsDirectionUrl(toilet.latitude, toilet.longitude), "_blank");
+    window.open(
+      buildMapsDirectionUrl(
+        toilet.latitude,
+        toilet.longitude,
+        userLocation?.latitude,
+        userLocation?.longitude
+      ),
+      "_blank"
+    );
   };
 
   const handleVoiceToiletSearch = () => {
@@ -1647,7 +1764,7 @@ function App() {
                         <span className="accessibility-icon" aria-hidden="true">
                           {"\u267F"}
                         </span>
-                        Disabled-Friendly
+                        {t("disabled_friendly", language)}
                       </span>
                     )}
                     <div className="toilet-type-chip" title={`Toilet Type: ${toilet.toilet_type || "Both"}`}>
@@ -1656,20 +1773,20 @@ function App() {
                     <h3 className="toilet-name">{toilet.name}</h3>
                     <p className="toilet-location">{toilet.location}</p>
                   </div>
-                  <span className={`status-badge ${statusClass}`}>{toilet.status || "FREE"}</span>
+                  <span className={`status-badge ${statusClass}`}>{toilet.status === "IN USE" ? t("status_in_use", language) : toilet.status === "FREE" ? t("status_free", language) : toilet.status || t("status_free", language)}</span>
                 </div>
 
                 <div className="toilet-kpi-row">
-                  <div className="usage-count">People Count: {peopleCount}</div>
-                  <div className="sensor-chip">Gas: {gasValue.toFixed(1)}</div>
-                  <div className="sensor-chip">Dustbin: {dustbinValue}%</div>
-                  {fanOnAlert && <div className="fan-alert-chip">Fan ON Alert</div>}
+                  <div className="usage-count">{t("people_count", language)}: {peopleCount}</div>
+                  <div className="sensor-chip">{t("gas", language)}: {gasValue.toFixed(1)}</div>
+                  <div className="sensor-chip">{t("dustbin", language)}: {dustbinValue}%</div>
+                  {fanOnAlert && <div className="fan-alert-chip">{t("fan_on_alert", language)}</div>}
                 </div>
 
                 <div className="toilet-metrics">
                   <div className={`metric-item ${getMetricTone(healthValue)}`}>
                     <div className="metric-label">
-                      <span className="metric-name">Health Score</span>
+                      <span className="metric-name">{t("health_score", language)}</span>
                       <span className="metric-value">{healthValue}%</span>
                     </div>
                     <div className="metric-bar">
@@ -1679,7 +1796,7 @@ function App() {
 
                   <div className={`metric-item ${getMetricTone(cleanlinessValue)}`}>
                     <div className="metric-label">
-                      <span className="metric-name">Cleanliness</span>
+                      <span className="metric-name">{t("cleanliness", language)}</span>
                       <span className="metric-value">{cleanlinessValue}%</span>
                     </div>
                     <div className="metric-bar">
@@ -1692,7 +1809,7 @@ function App() {
 
                   <div className={`metric-item ${getMetricTone(waterValue)}`}>
                     <div className="metric-label">
-                      <span className="metric-name">Water Level</span>
+                      <span className="metric-name">{t("water_level", language)}</span>
                       <span className="metric-value">{waterValue}%</span>
                     </div>
                     <div className="metric-bar">
@@ -1702,8 +1819,12 @@ function App() {
                 </div>
 
                 <div className="toilet-card-actions">
-                  <button className="complaint-btn" onClick={() => handleComplaintClick(toilet.id)}>
-                    Submit Complaint
+                  <button
+                    type="button"
+                    className="complaint-btn"
+                    onClick={() => handleComplaintClick(toilet.id)}
+                  >
+                    {t("submit_complaint", language)}
                   </button>
                   <button
                     type="button"
@@ -1711,7 +1832,7 @@ function App() {
                     onClick={() => handleOpenPaymentSection(toilet.id)}
                     disabled={paymentProcessingToiletId === toilet.id}
                   >
-                    {paymentProcessingToiletId === toilet.id ? "Processing..." : "Pay Online"}
+                    {paymentProcessingToiletId === toilet.id ? t("processing", language) : t("pay_online", language)}
                   </button>
                   <button
                     type="button"
@@ -1719,7 +1840,7 @@ function App() {
                     disabled={!hasCoordinates(toilet)}
                     onClick={() => handleNavigateToToilet(toilet)}
                   >
-                    Get Direction
+                    {t("get_directions", language)}
                   </button>
                 </div>
 
@@ -1731,14 +1852,14 @@ function App() {
                     aria-expanded={isRatingExpanded}
                     aria-controls={`toilet-rating-panel-${toilet.id}`}
                   >
-                    <span>Citizen Reviews</span>
+                    <span>{t("citizen_reviews", language)}</span>
                     <b>{weightedRating.toFixed(1)} / 5</b>
-                    <small>{isRatingExpanded ? "Hide" : "Open"}</small>
+                    <small>{isRatingExpanded ? t("hide", language) : t("open_review", language)}</small>
                   </button>
                   {isRatingExpanded && (
                     <div id={`toilet-rating-panel-${toilet.id}`} className="toilet-rating-box">
                       <div className="toilet-rating-head">
-                        <span>Rating Details</span>
+                        <span>{t("rating_details", language)}</span>
                         <b>
                           {weightedRating.toFixed(1)} / 5
                         </b>
@@ -1755,7 +1876,7 @@ function App() {
                           }`}
                           onClick={() => handleReviewModeChange(toilet.id, "form")}
                         >
-                          Write Review
+                          {t("write_review", language)}
                         </button>
                         <button
                           type="button"
@@ -1764,13 +1885,13 @@ function App() {
                           }`}
                           onClick={() => handleReviewModeChange(toilet.id, "list")}
                         >
-                          Show Reviews ({ratingsCount})
+                          {t("show_reviews", language)} ({ratingsCount})
                         </button>
                       </div>
 
                       {activeReviewMode === "form" && (
                         <div className="toilet-rating-form">
-                          <small className="toilet-rating-field-label">Your rating</small>
+                          <small className="toilet-rating-field-label">{t("your_rating", language)}</small>
                           <div className="toilet-rating-stars">
                             {RATING_STARS.map((star) => (
                               <button
@@ -1796,7 +1917,7 @@ function App() {
                             className="toilet-review-comment"
                             rows={3}
                             maxLength={500}
-                            placeholder="Write a short review (optional)"
+                            placeholder={t("write_review_placeholder", language)}
                             value={draftReviewComment}
                             onChange={(event) =>
                               setReviewCommentByToiletId((prev) => ({
@@ -1817,7 +1938,7 @@ function App() {
                               onClick={() => handleReviewSubmit(toilet.id)}
                               disabled={ratingSubmittingToiletId === toilet.id}
                             >
-                              {ratingSubmittingToiletId === toilet.id ? "Submitting..." : "Submit Review"}
+                              {ratingSubmittingToiletId === toilet.id ? t("processing", language) : t("submit_review", language)}
                             </button>
                           </div>
                           {myRating > 0 && (
@@ -1894,21 +2015,21 @@ function App() {
             className={`map-quick-btn ${mapFilterMode === "nearby" ? "active" : ""}`}
             onClick={handleShowNearbyToilet}
           >
-            Nearby Toilets
+            {t("filter_nearby", language)}
           </button>
           <button
             type="button"
             className={`map-quick-btn ${mapFilterMode === "cleanest" ? "active" : ""}`}
             onClick={handleShowCleanestToilets}
           >
-            Cleanest Toilets
+            {t("filter_cleanest", language)}
           </button>
           <button
             type="button"
             className={`map-quick-btn ${mapFilterMode === "disabled" ? "active" : ""}`}
             onClick={handleShowDisabledFriendlyToilets}
           >
-            Disabled Persons
+            {t("filter_disabled", language)}
           </button>
           {mapFilterMode !== "default" && (
             <button
@@ -1916,7 +2037,7 @@ function App() {
               className="map-quick-btn map-quick-btn-reset"
               onClick={handleShowAllMapPins}
             >
-              Show All Pins
+              {t("all_toilets", language)}
             </button>
           )}
         </div>
@@ -1925,25 +2046,20 @@ function App() {
           <input
             type="text"
             className="map-search-input"
-            placeholder="Search toilets by name or location..."
+            placeholder={t("search_placeholder", language)}
             value={searchTerm}
             onChange={(event) => setSearchTerm(event.target.value)}
           />
           <button type="submit" className="map-search-btn">
-            Search
+            {t("search_button", language)}
           </button>
           <button
             type="button"
             className={`map-search-btn map-search-voice-btn ${voiceSearchActive ? "active" : ""}`}
             onClick={handleVoiceToiletSearch}
             disabled={!voiceSearchSupported}
-            title={
-              voiceSearchSupported
-                ? "Speak toilet name to search"
-                : "Voice search not supported in this browser"
-            }
           >
-            {voiceSearchActive ? "Listening..." : "Voice Search"}
+            {voiceSearchActive ? t("listening", language) : t("voice_search", language)}
           </button>
         </form>
 
@@ -1971,13 +2087,40 @@ function App() {
           </div>
         )}
 
+        <NearestToiletsSection
+          toilets={toilets}
+          userLocation={userLocation}
+          language={language}
+          buildMapsDirectionUrl={buildMapsDirectionUrl}
+          onViewDetails={handleViewDetailsFromMap}
+          onReportIssue={(id) => handleComplaintClick(id)}
+        />
+
+        {locationState.error && (
+          <div className="location-alert-banner">
+            <span className="location-alert-icon">📍</span>
+            <span className="location-alert-text">{locationState.error}</span>
+            <button
+              type="button"
+              className="location-alert-btn"
+              onClick={startWatchingLocation}
+            >
+              Try Again
+            </button>
+          </div>
+        )}
+
         {mapFilterMessage && <div className="map-filter-message">{mapFilterMessage}</div>}
 
         {mapFilterMode === "nearby" && nearestToiletData && (
           <div className="map-focus-card">
             <div className="map-focus-head">
               <h4>Nearest Toilet</h4>
-              <span>{nearestToiletInfo?.distanceKm?.toFixed(2)} km</span>
+              <span>
+                {nearestToiletInfo?.distanceKm < 1
+                  ? `${Math.round(nearestToiletInfo?.distanceKm * 1000)} m`
+                  : `${nearestToiletInfo?.distanceKm?.toFixed(2)} km`}
+              </span>
             </div>
             <p>{nearestToiletData.name}</p>
             <small>{nearestToiletData.location}</small>
@@ -2000,6 +2143,9 @@ function App() {
           highlightedToiletIds={mapHighlightedToiletIds}
           onSelectToilet={(id) => setSelectedToilet(id)}
           onViewDetails={handleViewDetailsFromMap}
+          userLocation={userLocation}
+          onRequestLocation={startWatchingLocation}
+          language={language}
         />
       </section>
 
@@ -2041,8 +2187,9 @@ function App() {
           <div className="cleanest-panel-head">
             <h3>Disabled-Friendly Toilets</h3>
             <p>
-              Nearest first based on fixed location: {FIXED_LOCATION.label} (
-              {FIXED_LOCATION.latitude}, {FIXED_LOCATION.longitude})
+              {userLocation
+                ? "Nearest first based on your live GPS location"
+                : "Nearest disabled-friendly toilets"}
             </p>
           </div>
 
@@ -2058,7 +2205,11 @@ function App() {
                   <p>{toilet.location}</p>
                 </div>
                 <span className="cleanest-score">
-                  {toilet.distanceKm === null ? "N/A" : `${toilet.distanceKm.toFixed(2)} km`}
+                  {toilet.distanceKm === null
+                    ? "N/A"
+                    : toilet.distanceKm < 1
+                    ? `${Math.round(toilet.distanceKm * 1000)} m`
+                    : `${toilet.distanceKm.toFixed(2)} km`}
                 </span>
                 <div className="cleanest-actions">
                   <button type="button" onClick={() => handleViewDetailsFromMap(toilet.id)}>
@@ -2416,11 +2567,35 @@ function App() {
       </aside>
 
       <header className="main-header">
-        <p className="eyebrow">{APP_NAME} Citizen Panel</p>
-        <h1>{APP_NAME}</h1>
-        <h2>Nearby Toilets</h2>
-        <div className="portal-userbar">
-          <span>Welcome, {displayName || portalProfile?.username || "User"} 👋</span>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", flexWrap: "wrap", gap: "10px" }}>
+          <div>
+            <p className="eyebrow">{t("app_title", language)} {t("panel_citizen_title", language)}</p>
+            <h1>{APP_NAME}</h1>
+            <h2>{t("filter_nearby", language)}</h2>
+          </div>
+
+          <button
+            type="button"
+            className="switch-panel-hdr-btn"
+            onClick={() => setShowLanguageModal(true)}
+            style={{
+              background: "linear-gradient(135deg, rgba(37, 99, 235, 0.25), rgba(30, 64, 175, 0.4))",
+              border: "1px solid rgba(59, 130, 246, 0.5)",
+              color: "#93c5fd",
+              padding: "8px 14px",
+              borderRadius: "12px",
+              fontWeight: "700",
+              fontSize: "0.85rem",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              backdropFilter: "blur(8px)",
+              transition: "all 180ms ease"
+            }}
+          >
+            🌐 {t("switch_panel", language)}
+          </button>
         </div>
       </header>
 
@@ -2735,17 +2910,34 @@ function App() {
         </div>
       )}
 
+      <LanguageModal
+        isOpen={showLanguageModal}
+        onClose={() => setShowLanguageModal(false)}
+        currentLanguage={language}
+        onLanguageChange={(lang) => {
+          setLanguage(lang);
+          setStoredLanguage(lang);
+        }}
+      />
+
       {selectedToilet !== null && (
-        <div className="modal-overlay" onClick={() => setSelectedToilet(null)}>
-          <div className="modal-content" onClick={(event) => event.stopPropagation()}>
-            <button className="modal-close-btn" onClick={() => setSelectedToilet(null)}>
-              x
-            </button>
-            <h2 className="modal-title">Submit Complaint</h2>
+        <div className="portal-modal-overlay" onClick={() => setSelectedToilet(null)}>
+          <div className="portal-modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="portal-modal-header">
+              <h3>{t("report_title", language)}</h3>
+              <button
+                type="button"
+                className="portal-modal-close"
+                onClick={() => setSelectedToilet(null)}
+              >
+                ✕
+              </button>
+            </div>
             <ComplaintForm
               toiletId={selectedToilet}
               portalToken={portalToken}
               onComplaintSubmitted={handleComplaintSubmitted}
+              language={language}
             />
           </div>
         </div>
@@ -2755,4 +2947,3 @@ function App() {
 }
 
 export default App;
-

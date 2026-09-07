@@ -5,12 +5,15 @@ from django.http import HttpResponse
 from django.urls import include, path, re_path
 from django.views.static import serve as static_serve
 
+from toilets.analytics_views import admin_analytics_view
+
 admin.site.site_header = "SANITRAX Admin Panel"
 admin.site.site_title = "SANITRAX Admin"
 admin.site.index_title = "SANITRAX Administration Console"
 
 urlpatterns = [
     path("", lambda request: HttpResponse("Smart Toilet API Running")),
+    path("admin/analytics/", admin_analytics_view, name="admin_analytics"),
     path("admin/", admin.site.urls),
     path("api/toilets/", include("toilets.urls")),
     path("api/complaints/", include("complaints.urls")),

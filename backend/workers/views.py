@@ -1,8 +1,23 @@
 import json
+import math
 import os
 import random
 import tempfile
 from datetime import timedelta
+
+def _haversine_distance_meters(lat1, lon1, lat2, lon2):
+    R = 6371000.0  # Earth radius in meters
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    delta_phi = math.radians(lat2 - lat1)
+    delta_lambda = math.radians(lon2 - lon1)
+
+    a = (
+        math.sin(delta_phi / 2.0) ** 2
+        + math.cos(phi1) * math.cos(phi2) * math.sin(delta_lambda / 2.0) ** 2
+    )
+    c = 2.0 * math.atan2(math.sqrt(a), math.sqrt(1.0 - a))
+    return R * c
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import urlopen
@@ -397,10 +412,18 @@ def worker_update_complaint_status(request, complaint_id):
             status=400,
         )
 
+    skip_ai_raw = str(request.data.get("skip_ai", "") or "").lower()
+    skip_ai = skip_ai_raw in ("true", "1", "yes")
+
     after_video = request.FILES.get("after_video")
     verification_result = None
 
-    if after_video:
+    if skip_ai:
+        complaint.video_verification_status = "Approved"
+        complaint.video_verification_reason = "AI verification skipped (Demo mode)."
+        complaint.video_verification_meta = {"demo_bypass": True}
+        complaint.video_verified_at = timezone.now()
+    elif after_video:
         reported_duration_sec = request.data.get("after_video_duration_sec")
         temp_video_path = None
         try:
@@ -442,13 +465,13 @@ def worker_update_complaint_status(request, complaint_id):
         after_video.seek(0)
         complaint.after_video = after_video
 
-    if status_value == "Resolved" and not after_video and not complaint.after_video:
+    if status_value == "Resolved" and not after_video and not complaint.after_video and not skip_ai:
         return Response(
             {"detail": "Upload AFTER live video before marking complaint as resolved."},
             status=400,
         )
 
-    if status_value == "Resolved" and complaint.after_video:
+    if status_value == "Resolved" and complaint.after_video and not skip_ai:
         if complaint.video_verification_status != "Approved":
             return Response(
                 {
@@ -456,6 +479,50 @@ def worker_update_complaint_status(request, complaint_id):
                 },
                 status=400,
             )
+
+    if status_value == "Resolved":
+        solving_lat_raw = request.data.get("solving_latitude", request.data.get("latitude"))
+        solving_lng_raw = request.data.get("solving_longitude", request.data.get("longitude"))
+
+        if solving_lat_raw is not None and solving_lng_raw is not None:
+            try:
+                solving_lat = float(solving_lat_raw)
+                solving_lng = float(solving_lng_raw)
+
+                target_lat = complaint.latitude if complaint.latitude is not None else complaint.toilet.latitude
+                target_lng = complaint.longitude if complaint.longitude is not None else complaint.toilet.longitude
+
+                if target_lat is not None and target_lng is not None:
+                    dist_meters = _haversine_distance_meters(solving_lat, solving_lng, target_lat, target_lng)
+                    max_allowed_radius = 200.0
+
+                    complaint.solving_latitude = solving_lat
+                    complaint.solving_longitude = solving_lng
+                    complaint.location_distance_meters = round(dist_meters, 1)
+
+                    if dist_meters <= max_allowed_radius:
+                        complaint.location_verified = True
+                    else:
+                        complaint.location_verified = False
+                        complaint.save()
+                        return Response(
+                            {
+                                "detail": (
+                                    f"🔴 LOCATION NOT VERIFIED: The solving video location "
+                                    f"({solving_lat:.4f}, {solving_lng:.4f}) is {round(dist_meters)}m away from "
+                                    f"the assigned toilet location ({target_lat:.4f}, {target_lng:.4f}). "
+                                    "Please move to the correct toilet location and upload the solving video again."
+                                ),
+                                "location_verification": {
+                                    "verified": False,
+                                    "distance_meters": round(dist_meters, 1),
+                                    "allowed_radius_meters": max_allowed_radius,
+                                },
+                            },
+                            status=400,
+                        )
+            except (ValueError, TypeError):
+                pass
 
     complaint.status = status_value
     complaint.save()

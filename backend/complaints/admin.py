@@ -39,13 +39,15 @@ class ComplaintAdmin(admin.ModelAdmin):
         "issue_type",
         "priority",
         "status",
+        "location_preview",
+        "verification_status_badge",
         "after_video_link",
         "video_verification_status",
         "escalation_state",
         "assigned_to",
         "created_at",
     )
-    list_filter = (ComplaintQueueFilter, "priority", "status", "is_escalated", "assigned_to")
+    list_filter = (ComplaintQueueFilter, "priority", "status", "location_verified", "is_escalated", "assigned_to")
     search_fields = (
         "toilet__name",
         "issue_type",
@@ -57,6 +59,14 @@ class ComplaintAdmin(admin.ModelAdmin):
         "toilet",
         "issue_type",
         "description",
+        "latitude",
+        "longitude",
+        "location_preview",
+        "solving_latitude",
+        "solving_longitude",
+        "solving_location_preview",
+        "verification_status_badge",
+        "location_distance_meters",
         "image_preview",
         "after_image_preview",
         "after_video_link",
@@ -76,6 +86,14 @@ class ComplaintAdmin(admin.ModelAdmin):
         "toilet",
         "issue_type",
         "description",
+        "latitude",
+        "longitude",
+        "location_preview",
+        "solving_latitude",
+        "solving_longitude",
+        "solving_location_preview",
+        "verification_status_badge",
+        "location_distance_meters",
         "image_preview",
         "after_image_preview",
         "after_video_link",
@@ -92,6 +110,53 @@ class ComplaintAdmin(admin.ModelAdmin):
         "resolved_at",
         "resolution_time",
     )
+
+    def location_preview(self, obj):
+        if obj.latitude is not None and obj.longitude is not None:
+            maps_url = f"https://www.google.com/maps?q={obj.latitude},{obj.longitude}"
+            return format_html(
+                '<a href="{}" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:4px;padding:4px 8px;border-radius:6px;background:#eff6ff;border:1px solid #bfdbfe;color:#1d4ed8;font-weight:600;text-decoration:none;">'
+                '📍 Open Map ({:.4f}, {:.4f})</a>',
+                maps_url,
+                obj.latitude,
+                obj.longitude,
+            )
+        return format_html('<span style="color:#9ca3af;font-style:italic;">No Location</span>')
+
+    location_preview.short_description = "Complaint Location"
+
+    def solving_location_preview(self, obj):
+        if obj.solving_latitude is not None and obj.solving_longitude is not None:
+            maps_url = f"https://www.google.com/maps?q={obj.solving_latitude},{obj.solving_longitude}"
+            return format_html(
+                '<a href="{}" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:4px;padding:4px 8px;border-radius:6px;background:#ecfdf5;border:1px solid #a7f3d0;color:#047857;font-weight:600;text-decoration:none;">'
+                '📍 Solving Map ({:.4f}, {:.4f})</a>',
+                maps_url,
+                obj.solving_latitude,
+                obj.solving_longitude,
+            )
+        return format_html('<span style="color:#9ca3af;font-style:italic;">No Solving Location</span>')
+
+    solving_location_preview.short_description = "Worker Solving Location"
+
+    def verification_status_badge(self, obj):
+        if obj.location_verified:
+            dist_text = f" ({round(obj.location_distance_meters)}m)" if obj.location_distance_meters is not None else ""
+            return format_html(
+                '<span style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:999px;background:#ecfdf5;border:1px solid #6ee7b7;color:#065f46;font-weight:700;">'
+                '🟢 VERIFIED{}</span>',
+                dist_text,
+            )
+        elif obj.solving_latitude is not None:
+            dist_text = f" ({round(obj.location_distance_meters)}m)" if obj.location_distance_meters is not None else ""
+            return format_html(
+                '<span style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:999px;background:#fef2f2;border:1px solid #fca5a5;color:#991b1b;font-weight:700;">'
+                '🔴 NOT VERIFIED{}</span>',
+                dist_text,
+            )
+        return format_html('<span style="color:#9ca3af;font-style:italic;">Pending</span>')
+
+    verification_status_badge.short_description = "Location Verification"
 
     def image_preview(self, obj):
         if obj.image:

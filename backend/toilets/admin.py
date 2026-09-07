@@ -4,8 +4,9 @@ from django.urls import reverse
 from django.utils.html import format_html
 import time
 
+from django.utils import timezone
 from complaints.models import Complaint
-from .models import SensorStatus, ToiletAlert, Toilets
+from .models import CleaningHistory, SensorFailureLog, SensorStatus, ToiletAlert, Toilets
 
 
 class ComplaintInline(admin.TabularInline):
@@ -115,6 +116,13 @@ class ToiletsAdmin(admin.ModelAdmin):
             toilet.health_score = 100
             toilet.alert_level = 1
             toilet.save()
+            CleaningHistory.objects.create(
+                toilet=toilet,
+                cleaned_at=timezone.now(),
+                cleaned_by=request.user if request.user.is_authenticated else None,
+                status="Cleaned",
+                notes="Cleaned & reset via Admin Panel action",
+            )
         self.message_user(request, f"Successfully reset {queryset.count()} toilet(s)")
     
     reset_toilet_data.short_description = "Reset selected toilets data"
@@ -289,3 +297,75 @@ class SensorStatusAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+
+@admin.register(CleaningHistory)
+class CleaningHistoryAdmin(admin.ModelAdmin):
+    list_display = ("toilet_name", "formatted_date", "formatted_time", "status", "cleaned_by", "notes")
+    list_filter = ("status", "toilet", "cleaned_at")
+    search_fields = ("toilet__name", "notes", "cleaned_by__username")
+    ordering = ("-cleaned_at",)
+    readonly_fields = ("toilet", "cleaned_at", "cleaned_by", "status", "notes")
+
+    def toilet_name(self, obj):
+        return obj.toilet.name
+    toilet_name.short_description = "Toilet"
+
+    def formatted_date(self, obj):
+        return obj.cleaned_at.strftime("%d %B %Y")
+    formatted_date.short_description = "Date"
+
+    def formatted_time(self, obj):
+        return obj.cleaned_at.strftime("%I:%M %p")
+    formatted_time.short_description = "Time"
+
+    def has_add_permission(self, request):
+        return False
+
+
+@admin.register(SensorFailureLog)
+class SensorFailureLogAdmin(admin.ModelAdmin):
+    list_display = (
+        "sensor_name",
+        "sensor_type",
+        "toilet_name",
+        "status_badge",
+        "failure_reason",
+        "failed_at",
+        "recovered_at",
+        "is_active",
+    )
+    list_filter = ("status", "is_active", "sensor_type")
+    search_fields = ("sensor_name", "sensor_type", "toilet_name", "failure_reason")
+    ordering = ("-failed_at",)
+    readonly_fields = (
+        "sensor_name",
+        "sensor_type",
+        "toilet_name",
+        "toilet",
+        "status",
+        "failure_reason",
+        "failed_at",
+        "recovered_at",
+        "is_active",
+    )
+
+    def status_badge(self, obj):
+        colors = {
+            SensorFailureLog.STATUS_ONLINE: "#16a34a",
+            SensorFailureLog.STATUS_OFFLINE: "#dc2626",
+            SensorFailureLog.STATUS_FAILED: "#b91c1c",
+            SensorFailureLog.STATUS_INVALID_DATA: "#ea580c",
+            SensorFailureLog.STATUS_NO_RESPONSE: "#d97706",
+        }
+        color = colors.get(obj.status, "#6b7280")
+        return format_html(
+            '<span style="display:inline-block;padding:3px 10px;border-radius:12px;color:white;font-weight:bold;background:{};">{}</span>',
+            color,
+            obj.status,
+        )
+    status_badge.short_description = "Sensor Status"
+
+    def has_add_permission(self, request):
+        return False
+

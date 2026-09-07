@@ -1,11 +1,18 @@
 import React, { useEffect, useRef, useState } from "react";
 import axios from "axios";
 import { COMPLAINTS_API_BASE } from "./config/api";
+import { t } from "./constants/translations";
 
-function ComplaintForm({ toiletId, portalToken = "", onComplaintSubmitted = null }) {
+function ComplaintForm({
+  toiletId,
+  portalToken = "",
+  onComplaintSubmitted = null,
+  language = "en",
+}) {
   const [issueType, setIssueType] = useState("Dirty");
   const [description, setDescription] = useState("");
   const [image, setImage] = useState(null);
+  const [skipAi, setSkipAi] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraBusy, setCameraBusy] = useState(false);
   const [cameraReady, setCameraReady] = useState(false);
@@ -241,9 +248,31 @@ function ComplaintForm({ toiletId, portalToken = "", onComplaintSubmitted = null
     });
   };
 
+const getUserLocation = () => {
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) {
+      resolve(null);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        resolve({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+        });
+      },
+      () => {
+        // Permission denied or error - resolve null gracefully without breaking submission
+        resolve(null);
+      },
+      { timeout: 6000, enableHighAccuracy: true }
+    );
+  });
+};
+
   const handleSubmit = async (event) => {
     event.preventDefault();
-    if (!image) {
+    if (!image && !skipAi) {
       setMessage("Capture live toilet image before submitting complaint.");
       setMessageType("error");
       return;
@@ -258,8 +287,17 @@ function ComplaintForm({ toiletId, portalToken = "", onComplaintSubmitted = null
       formData.append("toilet", toiletId);
       formData.append("issue_type", issueType);
       formData.append("description", description);
-
-      formData.append("image", image);
+      if (image) {
+        formData.append("image", image);
+        const coords = await getUserLocation();
+        if (coords && coords.latitude !== undefined && coords.longitude !== undefined) {
+          formData.append("latitude", coords.latitude);
+          formData.append("longitude", coords.longitude);
+        }
+      }
+      if (skipAi) {
+        formData.append("skip_ai", "true");
+      }
 
       const headers = {
         "Content-Type": "multipart/form-data",
@@ -274,7 +312,7 @@ function ComplaintForm({ toiletId, portalToken = "", onComplaintSubmitted = null
         { headers }
       );
 
-      setMessage("Complaint submitted successfully.");
+      setMessage(t("complaint_success", language));
       setMessageType("success");
       setIssueType("Dirty");
       setDescription("");
@@ -338,7 +376,7 @@ function ComplaintForm({ toiletId, portalToken = "", onComplaintSubmitted = null
     <form onSubmit={handleSubmit} className="complaint-form">
       <div className="form-group">
         <label htmlFor="issueType" className="form-label">
-          Issue Type
+          {t("issue_type", language)}
         </label>
         <select
           id="issueType"
@@ -346,22 +384,22 @@ function ComplaintForm({ toiletId, portalToken = "", onComplaintSubmitted = null
           value={issueType}
           onChange={(event) => setIssueType(event.target.value)}
         >
-          <option value="Dirty">Dirty</option>
-          <option value="No Water">No Water</option>
-          <option value="Broken">Broken</option>
-          <option value="Other">Other</option>
+          <option value="Dirty">{t("issue_dirty", language)}</option>
+          <option value="No Water">{t("issue_no_water", language)}</option>
+          <option value="Broken">{t("issue_broken", language)}</option>
+          <option value="Other">{t("issue_other", language)}</option>
         </select>
       </div>
 
       <div className="form-group">
         <label htmlFor="description" className="form-label">
-          Description
+          {t("description_label", language)}
         </label>
         <textarea
           id="description"
           className="form-textarea"
           rows="4"
-          placeholder="Please describe the issue in detail..."
+          placeholder={t("description_placeholder", language)}
           value={description}
           onChange={(event) => setDescription(event.target.value)}
           required
@@ -370,7 +408,7 @@ function ComplaintForm({ toiletId, portalToken = "", onComplaintSubmitted = null
 
       <div className="form-group">
         <label className="form-label">
-          Live Complaint Image
+          {t("capture_image", language)}
         </label>
         <div className="complaint-camera-box">
           <div className="complaint-camera-top-actions">
@@ -393,7 +431,7 @@ function ComplaintForm({ toiletId, portalToken = "", onComplaintSubmitted = null
               onClick={() => startLiveCamera()}
               disabled={cameraBusy || submitting}
             >
-              {cameraBusy ? "Opening Camera..." : image ? "Retake Live Photo" : "Open Live Camera"}
+              {cameraBusy ? "Opening Camera..." : image ? "Retake Live Photo" : t("open_camera", language)}
             </button>
           )}
 
@@ -425,7 +463,7 @@ function ComplaintForm({ toiletId, portalToken = "", onComplaintSubmitted = null
                   onClick={captureFromCamera}
                   disabled={submitting || !cameraReady}
                 >
-                  Capture Photo
+                  {t("capture_photo", language)}
                 </button>
                 <button
                   type="button"
@@ -436,7 +474,7 @@ function ComplaintForm({ toiletId, portalToken = "", onComplaintSubmitted = null
                   }}
                   disabled={submitting}
                 >
-                  Close Camera
+                  {t("close_camera", language)}
                 </button>
               </div>
               {!cameraReady && (
@@ -458,7 +496,7 @@ function ComplaintForm({ toiletId, portalToken = "", onComplaintSubmitted = null
                 onClick={clearCapturedImage}
                 disabled={submitting}
               >
-                Remove Photo
+                {t("remove_photo", language)}
               </button>
             </div>
           )}
@@ -477,9 +515,21 @@ function ComplaintForm({ toiletId, portalToken = "", onComplaintSubmitted = null
         </div>
       </div>
 
+      <div className="form-group demo-bypass-group" style={{ margin: "14px 0" }}>
+        <label className="demo-bypass-label" style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer", color: "#60a5fa", fontSize: "0.9rem", fontWeight: "600" }}>
+          <input
+            type="checkbox"
+            checked={skipAi}
+            onChange={(e) => setSkipAi(e.target.checked)}
+            style={{ width: "18px", height: "18px", accentColor: "#2563eb", cursor: "pointer" }}
+          />
+          <span>⚡ {t("skip_ai_demo", language)}</span>
+        </label>
+      </div>
+
       <div className="complaint-form-submit-row">
         <button type="submit" className="submit-btn" disabled={submitting}>
-          {submitting ? "Submitting..." : "Submit Complaint"}
+          {submitting ? t("submitting", language) : t("submit_complaint", language)}
         </button>
       </div>
 
@@ -489,3 +539,4 @@ function ComplaintForm({ toiletId, portalToken = "", onComplaintSubmitted = null
 }
 
 export default ComplaintForm;
+

@@ -1,5 +1,5 @@
 from django.db import models
-from toilets.models import Toilets
+from toilets.models import Toilets, CleaningHistory
 from django.utils import timezone
 from datetime import timedelta
 from django.contrib.auth.models import User
@@ -45,6 +45,16 @@ class Complaint(models.Model):
     video_verification_reason = models.CharField(max_length=255, blank=True, default="")
     video_verified_at = models.DateTimeField(null=True, blank=True)
     video_verification_meta = models.JSONField(default=dict, blank=True)
+
+    # Geo-location coordinates captured upon submission (if image attached & location permitted)
+    latitude = models.FloatField(null=True, blank=True)
+    longitude = models.FloatField(null=True, blank=True)
+
+    # Worker solving/cleaning location coordinates captured upon resolution
+    solving_latitude = models.FloatField(null=True, blank=True)
+    solving_longitude = models.FloatField(null=True, blank=True)
+    location_verified = models.BooleanField(default=False)
+    location_distance_meters = models.FloatField(null=True, blank=True)
 
 
     # Current status of complaint
@@ -136,6 +146,13 @@ class Complaint(models.Model):
         ):
             resolved_by = self.assigned_to if self.assigned_to_id else None
             self.toilet.reset_to_optimal_state(resolved_by=resolved_by)
+            CleaningHistory.objects.create(
+                toilet=self.toilet,
+                cleaned_at=timezone.now(),
+                cleaned_by=resolved_by,
+                status="Cleaned",
+                notes=f"Cleaned and resolved via Complaint #{self.id} ({self.issue_type})"
+            )
 
     def __str__(self):
         return f"{self.toilet.name} - {self.issue_type}"

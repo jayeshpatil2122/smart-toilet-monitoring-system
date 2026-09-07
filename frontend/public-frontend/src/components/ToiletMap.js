@@ -1,11 +1,12 @@
-import React, { useEffect, useRef } from "react";
-import { MapContainer, Marker, Popup, TileLayer, Tooltip, useMap } from "react-leaflet";
+import React, { useEffect, useRef, useState } from "react";
+import { Circle, MapContainer, Marker, Popup, TileLayer, Tooltip, useMap } from "react-leaflet";
 import L from "leaflet";
 import {
-  FIXED_LOCATION,
-  FIXED_LOCATION_COORDS,
+  DEFAULT_MAP_CENTER_COORDS,
   buildMapsDirectionUrl,
 } from "../constants/fixedLocation";
+
+import { t } from "../constants/translations";
 
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -45,33 +46,145 @@ const createCustomIcon = (status, highlighted = false) => {
   });
 };
 
-function UserLocation() {
+const createUserLocationIcon = () => {
+  const html = `
+    <div class="user-location-marker-container">
+      <div class="user-location-pulse"></div>
+      <div class="user-location-dot"></div>
+    </div>
+  `;
+  return new L.DivIcon({
+    html,
+    className: "custom-user-location-icon",
+    iconSize: [24, 24],
+    iconAnchor: [12, 12],
+    popupAnchor: [0, -12],
+  });
+};
+
+function UserLocationMarker({ userLocation, language = "en" }) {
+  if (!userLocation || !userLocation.latitude || !userLocation.longitude) {
+    return null;
+  }
+
+  const userCoords = [userLocation.latitude, userLocation.longitude];
+  const icon = createUserLocationIcon();
+
   return (
-    <Marker position={FIXED_LOCATION_COORDS}>
-      <Popup>{`${FIXED_LOCATION.label} (Fixed Location)`}</Popup>
-    </Marker>
+    <>
+      {userLocation.accuracy && (
+        <Circle
+          center={userCoords}
+          radius={Math.min(userLocation.accuracy, 500)}
+          pathOptions={{
+            color: "#2563eb",
+            fillColor: "#3b82f6",
+            fillOpacity: 0.15,
+            weight: 1.5,
+          }}
+        />
+      )}
+      <Marker position={userCoords} icon={icon} zIndexOffset={1000}>
+        <Popup className="custom-popup user-location-popup">
+          <div style={{ textAlign: "center", padding: "4px 8px" }}>
+            <strong style={{ color: "#2563eb", fontSize: "14px", display: "block", marginBottom: "2px" }}>
+              🔵 {t("your_location", language)}
+            </strong>
+            <span style={{ color: "#64748b", fontSize: "11px" }}>
+              {t("live_gps", language)} ({userLocation.latitude.toFixed(5)}, {userLocation.longitude.toFixed(5)})
+            </span>
+          </div>
+        </Popup>
+      </Marker>
+    </>
   );
 }
 
-function MapViewportController() {
+function MapViewportController({ userLocation, centerTrigger }) {
   const map = useMap();
-  const hasInitializedViewRef = useRef(false);
+  const initialCenteredRef = useRef(false);
+  const prevTriggerRef = useRef(centerTrigger);
 
   useEffect(() => {
-    if (hasInitializedViewRef.current) return;
-    map.setView(FIXED_LOCATION_COORDS, 15, { animate: false });
-    hasInitializedViewRef.current = true;
-  }, [map]);
+    if (userLocation?.latitude && userLocation?.longitude) {
+      if (!initialCenteredRef.current) {
+        map.flyTo([userLocation.latitude, userLocation.longitude], 16, {
+          duration: 1.2,
+        });
+        initialCenteredRef.current = true;
+      }
+    }
+  }, [map, userLocation]);
+
+  useEffect(() => {
+    if (centerTrigger !== prevTriggerRef.current) {
+      prevTriggerRef.current = centerTrigger;
+      if (userLocation?.latitude && userLocation?.longitude) {
+        map.flyTo([userLocation.latitude, userLocation.longitude], 16, {
+          duration: 1.0,
+        });
+      }
+    }
+  }, [map, userLocation, centerTrigger]);
 
   return null;
 }
 
-function ToiletMap({ toilets, onSelectToilet, onViewDetails, highlightedToiletIds = [] }) {
+function MyLocationButton({ userLocation, onRequestLocation, onCenterUser }) {
+  const handleClick = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (userLocation?.latitude && userLocation?.longitude) {
+      onCenterUser();
+    } else {
+      onRequestLocation();
+    }
+  };
+
+  return (
+    <div className="leaflet-top leaflet-right" style={{ marginTop: "10px", marginRight: "10px", zIndex: 1000 }}>
+      <div className="leaflet-control leaflet-bar">
+        <button
+          type="button"
+          onClick={handleClick}
+          className="my-location-control-btn"
+          title="Recenter on My Location"
+          aria-label="Recenter on My Location"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1e293b" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="8"></circle>
+            <line x1="12" y1="2" x2="12" y2="6"></line>
+            <line x1="12" y1="18" x2="12" y2="22"></line>
+            <line x1="2" y1="12" x2="6" y2="12"></line>
+            <line x1="18" y1="12" x2="22" y2="12"></line>
+          </svg>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ToiletMap({
+  toilets,
+  onSelectToilet,
+  onViewDetails,
+  highlightedToiletIds = [],
+  userLocation = null,
+  onRequestLocation = () => {},
+  language = "en",
+}) {
+  const [centerTrigger, setCenterTrigger] = useState(0);
   const highlightedSet = new Set(highlightedToiletIds);
+
+  const initialCenter = userLocation?.latitude && userLocation?.longitude
+    ? [userLocation.latitude, userLocation.longitude]
+    : DEFAULT_MAP_CENTER_COORDS;
+
   const getSafeGasValue = (value) => {
     const num = Number(value);
     return Number.isFinite(num) ? num : 0;
   };
+
   const getToiletTypeSymbols = (toiletType) => {
     const normalized = String(toiletType || "").trim().toLowerCase();
     if (normalized === "male") return "♂";
@@ -90,22 +203,31 @@ function ToiletMap({ toilets, onSelectToilet, onViewDetails, highlightedToiletId
 
   const getStatusLabel = (status) => {
     const normalized = String(status || "").trim().toLowerCase();
-    if (normalized === "moderate") return "Moderate";
-    if (normalized === "critical") return "Critical";
-    if (normalized === "in use") return "IN USE";
-    if (normalized === "free") return "FREE";
-    return "Good";
+    if (normalized === "moderate") return t("status_moderate", language);
+    if (normalized === "critical") return t("status_critical", language);
+    if (normalized === "in use") return t("status_in_use", language);
+    if (normalized === "free") return t("status_free", language);
+    return t("status_good", language);
+  };
+
+  const handleCenterUser = () => {
+    setCenterTrigger((prev) => prev + 1);
   };
 
   return (
-    <MapContainer center={FIXED_LOCATION_COORDS} zoom={13} className="toilet-map" zoomControl={true}>
+    <MapContainer center={initialCenter} zoom={15} className="toilet-map" zoomControl={true}>
       <TileLayer
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
-      <MapViewportController />
+      <MapViewportController userLocation={userLocation} centerTrigger={centerTrigger} />
+      <MyLocationButton
+        userLocation={userLocation}
+        onRequestLocation={onRequestLocation}
+        onCenterUser={handleCenterUser}
+      />
 
-      <UserLocation />
+      <UserLocationMarker userLocation={userLocation} language={language} />
 
       {toilets.map((toilet) =>
         toilet.latitude && toilet.longitude ? (
@@ -148,13 +270,13 @@ function ToiletMap({ toilets, onSelectToilet, onViewDetails, highlightedToiletId
                     {toilet.is_disabled_friendly && (
                       <span
                         className="popup-accessibility-badge"
-                        aria-label="Disabled-friendly toilet"
-                        title="Disabled-friendly toilet"
+                        aria-label={t("disabled_friendly", language)}
+                        title={t("disabled_friendly", language)}
                       >
                         <span className="popup-accessibility-icon" aria-hidden="true">
                           {"\u267F"}
                         </span>
-                        Disabled-Friendly
+                        {t("disabled_friendly", language)}
                       </span>
                     )}
                   </div>
@@ -173,16 +295,16 @@ function ToiletMap({ toilets, onSelectToilet, onViewDetails, highlightedToiletId
                 <p className="popup-location">
                   {getToiletTypeSymbols(toilet.toilet_type)} {toilet.toilet_type || "Both"}
                 </p>
-                <p className="popup-location">Gas: {getSafeGasValue(toilet.gas_level).toFixed(1)}</p>
-                <p className="popup-location">Dustbin: {Math.max(0, Math.min(100, Math.round(Number(toilet.dustbin_level || 0))))}%</p>
+                <p className="popup-location">{t("gas", language)}: {getSafeGasValue(toilet.gas_level).toFixed(1)}</p>
+                <p className="popup-location">{t("dustbin", language)}: {Math.max(0, Math.min(100, Math.round(Number(toilet.dustbin_level || 0))))}%</p>
                 {getSafeGasValue(toilet.gas_level) > 70 && (
-                  <p className="popup-location"><b>Fan ON Alert</b></p>
+                  <p className="popup-location"><b>{t("fan_on_alert", language)}</b></p>
                 )}
 
                 <div className="popup-metrics">
                   <div className="popup-metric">
                     <div className="popup-metric-header">
-                      <span className="popup-metric-label">Health</span>
+                      <span className="popup-metric-label">{t("health_score", language)}</span>
                       <span className="popup-metric-value">{toilet.health_score || 0}%</span>
                     </div>
                     <div className="popup-metric-bar">
@@ -195,7 +317,7 @@ function ToiletMap({ toilets, onSelectToilet, onViewDetails, highlightedToiletId
 
                   <div className="popup-metric">
                     <div className="popup-metric-header">
-                      <span className="popup-metric-label">Cleanliness</span>
+                      <span className="popup-metric-label">{t("cleanliness", language)}</span>
                       <span className="popup-metric-value">{toilet.cleanliness || 0}%</span>
                     </div>
                     <div className="popup-metric-bar">
@@ -208,7 +330,7 @@ function ToiletMap({ toilets, onSelectToilet, onViewDetails, highlightedToiletId
 
                   <div className="popup-metric">
                     <div className="popup-metric-header">
-                      <span className="popup-metric-label">Water</span>
+                      <span className="popup-metric-label">{t("water_level", language)}</span>
                       <span className="popup-metric-value">{toilet.water_level || 0}%</span>
                     </div>
                     <div className="popup-metric-bar">
@@ -230,7 +352,7 @@ function ToiletMap({ toilets, onSelectToilet, onViewDetails, highlightedToiletId
                     }}
                     className="popup-btn popup-btn-details"
                   >
-                    View Details
+                    {t("view_details", language)}
                   </button>
 
                   <button
@@ -242,7 +364,7 @@ function ToiletMap({ toilets, onSelectToilet, onViewDetails, highlightedToiletId
                     }}
                     className="popup-btn popup-btn-complaint"
                   >
-                    Report Issue
+                    {t("report_issue", language)}
                   </button>
                 </div>
 
@@ -251,11 +373,19 @@ function ToiletMap({ toilets, onSelectToilet, onViewDetails, highlightedToiletId
                   onClick={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
-                    window.open(buildMapsDirectionUrl(toilet.latitude, toilet.longitude), "_blank");
+                    window.open(
+                      buildMapsDirectionUrl(
+                        toilet.latitude,
+                        toilet.longitude,
+                        userLocation?.latitude,
+                        userLocation?.longitude
+                      ),
+                      "_blank"
+                    );
                   }}
                   className="popup-btn popup-btn-directions"
                 >
-                  Get Directions
+                  {t("get_directions", language)}
                 </button>
               </div>
             </Popup>
@@ -267,3 +397,4 @@ function ToiletMap({ toilets, onSelectToilet, onViewDetails, highlightedToiletId
 }
 
 export default ToiletMap;
+

@@ -16,7 +16,7 @@ from rest_framework.authtoken.models import Token
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
-from .models import ToiletAlert, ToiletRating, Toilets
+from .models import CleaningHistory, SensorFailureLog, SensorStatus, ToiletAlert, ToiletRating, Toilets
 from .serializers import ToiletSerializer, ToiletRatingSerializer
 
 
@@ -427,6 +427,40 @@ def get_sensor_data(request):
     )
 
 
+@api_view(["GET"])
+def get_detailed_sensor_status(request):
+    try:
+        SensorStatus.refresh_all_from_blynk()
+    except Exception:
+        pass
+
+    total_sensors = SensorStatus.objects.count()
+    online_sensors = SensorStatus.objects.filter(is_working=True).count()
+    offline_sensors = SensorStatus.objects.filter(is_working=False).count()
+
+    active_alerts = list(SensorFailureLog.objects.filter(is_active=True))
+    active_alerts_data = [
+        {
+            "id": a.id,
+            "sensor_name": a.sensor_name,
+            "sensor_type": a.sensor_type,
+            "toilet_name": a.toilet_name,
+            "status": a.status,
+            "failure_reason": a.failure_reason,
+            "failed_at": a.failed_at.isoformat() if a.failed_at else "",
+        }
+        for a in active_alerts
+    ]
+
+    return Response({
+        "total_sensors": total_sensors,
+        "online_sensors": online_sensors,
+        "offline_sensors": offline_sensors,
+        "failed_sensors": len(active_alerts),
+        "active_alerts": active_alerts_data,
+    })
+
+
 @api_view(["POST"])
 def enter_toilet(request, pk):
     toilet = get_object_or_404(Toilets, id=pk)
@@ -439,6 +473,7 @@ def enter_toilet(request, pk):
 @api_view(["PUT"])
 def clean_toilet(request, pk):
     toilet = get_object_or_404(Toilets, id=pk)
+    user = _resolve_request_user_from_token(request)
     toilet.usage_count = 0
     toilet.cleanliness = 100
     toilet.water_level = 100
@@ -446,6 +481,15 @@ def clean_toilet(request, pk):
     toilet.health_score = 100
     toilet.alert_level = 1
     toilet.save()
+
+    CleaningHistory.objects.create(
+        toilet=toilet,
+        cleaned_at=timezone.now(),
+        cleaned_by=user,
+        status="Cleaned",
+        notes="Cleaned via API request"
+    )
+
     serializer = ToiletSerializer(toilet)
     return Response(serializer.data)
 
