@@ -6,7 +6,6 @@
 **/*.py[cod]
 
 backend/venv/
-backend/staticfiles/
 backend/media/
 backend/db.sqlite3
 

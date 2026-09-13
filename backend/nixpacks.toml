@@ -16,4 +16,4 @@ aptPkgs = [
 cmds = ["python manage.py collectstatic --noinput"]
 
 [start]
-cmd = "gunicorn core.wsgi:application"
+cmd = "python manage.py collectstatic --noinput && gunicorn core.wsgi:application"
