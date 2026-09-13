@@ -112,97 +112,126 @@ class ComplaintAdmin(admin.ModelAdmin):
     )
 
     def location_preview(self, obj):
-        if obj.latitude is not None and obj.longitude is not None:
-            maps_url = f"https://www.google.com/maps?q={obj.latitude},{obj.longitude}"
-            return format_html(
-                '<a href="{}" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:4px;padding:4px 8px;border-radius:6px;background:#eff6ff;border:1px solid #bfdbfe;color:#1d4ed8;font-weight:600;text-decoration:none;">'
-                '📍 Open Map ({:.4f}, {:.4f})</a>',
-                maps_url,
-                obj.latitude,
-                obj.longitude,
-            )
+        try:
+            if getattr(obj, "latitude", None) is not None and getattr(obj, "longitude", None) is not None:
+                lat = float(obj.latitude)
+                lng = float(obj.longitude)
+                maps_url = f"https://www.google.com/maps?q={lat},{lng}"
+                return format_html(
+                    '<a href="{}" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:4px;padding:4px 8px;border-radius:6px;background:#eff6ff;border:1px solid #bfdbfe;color:#1d4ed8;font-weight:600;text-decoration:none;">'
+                    '📍 Open Map ({:.4f}, {:.4f})</a>',
+                    maps_url,
+                    lat,
+                    lng,
+                )
+        except Exception:
+            pass
         return format_html('<span style="color:#9ca3af;font-style:italic;">No Location</span>')
 
     location_preview.short_description = "Complaint Location"
 
     def solving_location_preview(self, obj):
-        if obj.solving_latitude is not None and obj.solving_longitude is not None:
-            maps_url = f"https://www.google.com/maps?q={obj.solving_latitude},{obj.solving_longitude}"
-            return format_html(
-                '<a href="{}" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:4px;padding:4px 8px;border-radius:6px;background:#ecfdf5;border:1px solid #a7f3d0;color:#047857;font-weight:600;text-decoration:none;">'
-                '📍 Solving Map ({:.4f}, {:.4f})</a>',
-                maps_url,
-                obj.solving_latitude,
-                obj.solving_longitude,
-            )
+        try:
+            if getattr(obj, "solving_latitude", None) is not None and getattr(obj, "solving_longitude", None) is not None:
+                lat = float(obj.solving_latitude)
+                lng = float(obj.solving_longitude)
+                maps_url = f"https://www.google.com/maps?q={lat},{lng}"
+                return format_html(
+                    '<a href="{}" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:4px;padding:4px 8px;border-radius:6px;background:#ecfdf5;border:1px solid #a7f3d0;color:#047857;font-weight:600;text-decoration:none;">'
+                    '📍 Solving Map ({:.4f}, {:.4f})</a>',
+                    maps_url,
+                    lat,
+                    lng,
+                )
+        except Exception:
+            pass
         return format_html('<span style="color:#9ca3af;font-style:italic;">No Solving Location</span>')
 
     solving_location_preview.short_description = "Worker Solving Location"
 
     def verification_status_badge(self, obj):
-        if obj.location_verified:
-            dist_text = f" ({round(obj.location_distance_meters)}m)" if obj.location_distance_meters is not None else ""
-            return format_html(
-                '<span style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:999px;background:#ecfdf5;border:1px solid #6ee7b7;color:#065f46;font-weight:700;">'
-                '🟢 VERIFIED{}</span>',
-                dist_text,
-            )
-        elif obj.solving_latitude is not None:
-            dist_text = f" ({round(obj.location_distance_meters)}m)" if obj.location_distance_meters is not None else ""
-            return format_html(
-                '<span style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:999px;background:#fef2f2;border:1px solid #fca5a5;color:#991b1b;font-weight:700;">'
-                '🔴 NOT VERIFIED{}</span>',
-                dist_text,
-            )
+        try:
+            dist_text = ""
+            if getattr(obj, "location_distance_meters", None) is not None:
+                try:
+                    dist_text = f" ({round(float(obj.location_distance_meters))}m)"
+                except Exception:
+                    dist_text = ""
+
+            if getattr(obj, "location_verified", False):
+                return format_html(
+                    '<span style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:999px;background:#ecfdf5;border:1px solid #6ee7b7;color:#065f46;font-weight:700;">'
+                    '🟢 VERIFIED{}</span>',
+                    dist_text,
+                )
+            elif getattr(obj, "solving_latitude", None) is not None:
+                return format_html(
+                    '<span style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:999px;background:#fef2f2;border:1px solid #fca5a5;color:#991b1b;font-weight:700;">'
+                    '🔴 NOT VERIFIED{}</span>',
+                    dist_text,
+                )
+        except Exception:
+            pass
         return format_html('<span style="color:#9ca3af;font-style:italic;">Pending</span>')
 
     verification_status_badge.short_description = "Location Verification"
 
     def image_preview(self, obj):
-        if obj.image:
-            return format_html(
-                '<div style="display:grid;gap:8px;">'
-                '<img src="{}" alt="Before Image" '
-                'style="max-width:220px;max-height:140px;object-fit:cover;border-radius:8px;'
-                'border:1px solid #93c5fd;background:#f8fbff;" />'
-                '<a href="{}" target="_blank" rel="noopener noreferrer" '
-                'style="display:inline-flex;align-items:center;justify-content:center;padding:6px 12px;'
-                'border-radius:8px;background:#eff6ff;border:1px solid #93c5fd;color:#1d4ed8;'
-                'font-weight:700;text-decoration:none;">Open Before Image</a>'
-                '</div>',
-                obj.image.url,
-                obj.image.url,
-            )
+        try:
+            if getattr(obj, "image", None) and hasattr(obj.image, "url") and obj.image.name:
+                url = obj.image.url
+                return format_html(
+                    '<div style="display:grid;gap:8px;">'
+                    '<img src="{}" alt="Before Image" '
+                    'style="max-width:220px;max-height:140px;object-fit:cover;border-radius:8px;'
+                    'border:1px solid #93c5fd;background:#f8fbff;" />'
+                    '<a href="{}" target="_blank" rel="noopener noreferrer" '
+                    'style="display:inline-flex;align-items:center;justify-content:center;padding:6px 12px;'
+                    'border-radius:8px;background:#eff6ff;border:1px solid #93c5fd;color:#1d4ed8;'
+                    'font-weight:700;text-decoration:none;">Open Before Image</a>'
+                    '</div>',
+                    url,
+                    url,
+                )
+        except Exception:
+            pass
         return "No Image"
 
     image_preview.short_description = "Before Image"
 
     def after_image_preview(self, obj):
-        if obj.after_image:
-            return format_html(
-                '<div style="display:grid;gap:8px;">'
-                '<img src="{}" alt="After Image" '
-                'style="max-width:220px;max-height:140px;object-fit:cover;border-radius:8px;'
-                'border:1px solid #86efac;background:#f7fff9;" />'
-                '<a href="{}" target="_blank" rel="noopener noreferrer" '
-                'style="display:inline-flex;align-items:center;justify-content:center;padding:6px 12px;'
-                'border-radius:8px;background:#ecfdf5;border:1px solid #86efac;color:#166534;'
-                'font-weight:700;text-decoration:none;">Open After Image</a>'
-                '</div>',
-                obj.after_image.url,
-                obj.after_image.url,
-            )
+        try:
+            if getattr(obj, "after_image", None) and hasattr(obj.after_image, "url") and obj.after_image.name:
+                url = obj.after_image.url
+                return format_html(
+                    '<div style="display:grid;gap:8px;">'
+                    '<img src="{}" alt="After Image" '
+                    'style="max-width:220px;max-height:140px;object-fit:cover;border-radius:8px;'
+                    'border:1px solid #86efac;background:#f7fff9;" />'
+                    '<a href="{}" target="_blank" rel="noopener noreferrer" '
+                    'style="display:inline-flex;align-items:center;justify-content:center;padding:6px 12px;'
+                    'border-radius:8px;background:#ecfdf5;border:1px solid #86efac;color:#166534;'
+                    'font-weight:700;text-decoration:none;">Open After Image</a>'
+                    '</div>',
+                    url,
+                    url,
+                )
+        except Exception:
+            pass
         return "No After Image"
 
     after_image_preview.short_description = "After Image"
 
     def after_video_link(self, obj):
-        if not obj.after_video:
-            return "No After Video"
-        return format_html(
-            '<a href="{}" target="_blank" rel="noopener noreferrer">Open After Video</a>',
-            obj.after_video.url,
-        )
+        try:
+            if getattr(obj, "after_video", None) and hasattr(obj.after_video, "url") and obj.after_video.name:
+                return format_html(
+                    '<a href="{}" target="_blank" rel="noopener noreferrer">Open After Video</a>',
+                    obj.after_video.url,
+                )
+        except Exception:
+            pass
+        return "No After Video"
 
     after_video_link.short_description = "After Video"
 

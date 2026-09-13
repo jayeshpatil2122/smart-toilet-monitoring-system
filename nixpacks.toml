@@ -13,7 +13,7 @@ aptPkgs = [
 ]
 
 [phases.build]
-cmds = ["python manage.py collectstatic --noinput"]
+cmds = ["cd backend && python manage.py collectstatic --noinput"]
 
 [start]
-cmd = "python manage.py migrate --noinput && gunicorn core.wsgi:application"
+cmd = "cd backend && python manage.py migrate --noinput && gunicorn core.wsgi:application"

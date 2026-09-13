@@ -430,35 +430,49 @@ def get_sensor_data(request):
 @api_view(["GET"])
 def get_detailed_sensor_status(request):
     try:
-        SensorStatus.refresh_all_from_blynk()
-    except Exception:
-        pass
+        try:
+            SensorStatus.refresh_all_from_blynk()
+        except Exception:
+            pass
 
-    total_sensors = SensorStatus.objects.count()
-    online_sensors = SensorStatus.objects.filter(is_working=True).count()
-    offline_sensors = SensorStatus.objects.filter(is_working=False).count()
+        total_sensors = SensorStatus.objects.count()
+        online_sensors = SensorStatus.objects.filter(is_working=True).count()
+        offline_sensors = SensorStatus.objects.filter(is_working=False).count()
 
-    active_alerts = list(SensorFailureLog.objects.filter(is_active=True))
-    active_alerts_data = [
-        {
-            "id": a.id,
-            "sensor_name": a.sensor_name,
-            "sensor_type": a.sensor_type,
-            "toilet_name": a.toilet_name,
-            "status": a.status,
-            "failure_reason": a.failure_reason,
-            "failed_at": a.failed_at.isoformat() if a.failed_at else "",
-        }
-        for a in active_alerts
-    ]
+        active_alerts = list(SensorFailureLog.objects.filter(is_active=True))
+        active_alerts_data = [
+            {
+                "id": getattr(a, "id", None),
+                "sensor_name": getattr(a, "sensor_name", "Unknown Sensor"),
+                "sensor_type": getattr(a, "sensor_type", "unknown"),
+                "toilet_name": getattr(a, "toilet_name", "Main Facility"),
+                "status": getattr(a, "status", "UNKNOWN"),
+                "failure_reason": getattr(a, "failure_reason", "") or "",
+                "failed_at": (
+                    a.failed_at.isoformat()
+                    if hasattr(getattr(a, "failed_at", None), "isoformat")
+                    else str(getattr(a, "failed_at", "") or "")
+                ),
+            }
+            for a in active_alerts
+        ]
 
-    return Response({
-        "total_sensors": total_sensors,
-        "online_sensors": online_sensors,
-        "offline_sensors": offline_sensors,
-        "failed_sensors": len(active_alerts),
-        "active_alerts": active_alerts_data,
-    })
+        return Response({
+            "total_sensors": total_sensors,
+            "online_sensors": online_sensors,
+            "offline_sensors": offline_sensors,
+            "failed_sensors": len(active_alerts),
+            "active_alerts": active_alerts_data,
+        })
+    except Exception as exc:
+        return Response({
+            "total_sensors": 0,
+            "online_sensors": 0,
+            "offline_sensors": 0,
+            "failed_sensors": 0,
+            "active_alerts": [],
+            "error": str(exc),
+        }, status=200)
 
 
 @api_view(["POST"])
