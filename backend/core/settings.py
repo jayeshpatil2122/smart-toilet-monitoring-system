@@ -31,9 +31,15 @@ GOOGLE_OAUTH_CLIENT_ID = "".join(
     ).split()
 )
 
-CSRF_TRUSTED_ORIGINS = [
-    f"https://{host}" for host in ALLOWED_HOSTS if host
-]
+raw_csrf = os.environ.get("CSRF_TRUSTED_ORIGINS", "")
+if raw_csrf:
+    CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in raw_csrf.split(",") if origin.strip()]
+else:
+    CSRF_TRUSTED_ORIGINS = [
+        host if host.startswith("http://") or host.startswith("https://") else f"https://{host}"
+        for host in ALLOWED_HOSTS if host and host != "*"
+    ]
+
 
 
 # ==============================

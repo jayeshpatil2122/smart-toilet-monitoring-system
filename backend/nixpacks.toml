@@ -11,3 +11,9 @@ aptPkgs = [
   "libxkbcommon-x11-0",
   "ffmpeg",
 ]
+
+[phases.build]
+cmds = ["python manage.py collectstatic --noinput"]
+
+[start]
+cmd = "gunicorn core.wsgi:application"
