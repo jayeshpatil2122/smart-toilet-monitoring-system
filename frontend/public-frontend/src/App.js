@@ -504,14 +504,6 @@ function App() {
     localStorage.setItem("portal_compact_cards", compactCards ? "true" : "false");
   }, [compactCards]);
 
-  useEffect(() => {
-    if (focusedToiletId === null) return;
-    const card = document.getElementById(`toilet-card-${focusedToiletId}`);
-    if (card) {
-      card.scrollIntoView({ behavior: "smooth", block: "center" });
-    }
-  }, [focusedToiletId, activeSection, showAllToilets]);
-
   const clearAuthNotices = () => {
     setAuthMessage("");
     setAuthError("");
@@ -562,6 +554,21 @@ function App() {
     setActiveSection("map");
     setIsDrawerOpen(false);
   }, []);
+
+  useEffect(() => {
+    if (!portalToken) {
+      axios
+        .post(`${PORTAL_API_BASE}/bypass/`)
+        .then((res) => {
+          if (res?.data?.token) {
+            completePortalLogin(res.data.token, res.data.user);
+          }
+        })
+        .catch((err) => {
+          console.warn("Silent guest session notice:", err);
+        });
+    }
+  }, [portalToken, completePortalLogin]);
 
   const handlePortalLogin = async (event) => {
     event.preventDefault();
@@ -2249,250 +2256,6 @@ function App() {
     );
   }
 
-  if (!portalToken) {
-    return (
-      <div className="portal-auth-shell">
-        <ParallaxStarsBackground className="portal-auth-stars" speed={1.2} />
-
-        <div className="portal-auth-card-wrap">
-          <div className="portal-auth-card">
-            <div className="portal-auth-head">
-              <img src={appLogo} alt="Portal Logo" className="portal-auth-logo" />
-              <h1>{APP_NAME} Citizen Access</h1>
-              <p>Secure entry required for {APP_NAME}</p>
-            </div>
-
-            <div className="portal-auth-role-switch">
-              <button type="button" className="active" onClick={handleSwitchToCitizenLogin}>
-                Citizen Login
-              </button>
-              <button type="button" onClick={handleSwitchToWorkerLogin}>
-                Worker Login
-              </button>
-            </div>
-
-            {authMessage && <div className="portal-auth-msg ok">{authMessage}</div>}
-            {authError && <div className="portal-auth-msg err">{authError}</div>}
-
-            <div className="portal-auth-tabs">
-              <button
-                type="button"
-                className={authView === "login" ? "active" : ""}
-                onClick={() => setAuthView("login")}
-              >
-                Login
-              </button>
-              <button
-                type="button"
-                className={authView === "signup" ? "active" : ""}
-                onClick={() => setAuthView("signup")}
-              >
-                Signup
-              </button>
-              <button
-                type="button"
-                className={authView === "forgot" ? "active" : ""}
-                onClick={() => setAuthView("forgot")}
-              >
-                Forgot Password
-              </button>
-            </div>
-
-            {authView === "login" && (
-              <>
-                <form className="portal-auth-form" onSubmit={handlePortalLogin}>
-                  <input
-                    type="text"
-                    placeholder="Username"
-                    value={loginData.username}
-                    onChange={(event) => setLoginData({ ...loginData, username: event.target.value })}
-                    required
-                  />
-                  <input
-                    type="password"
-                    placeholder="Password"
-                    value={loginData.password}
-                    onChange={(event) => setLoginData({ ...loginData, password: event.target.value })}
-                    required
-                  />
-                  <button type="submit" disabled={authLoading}>
-                    {authLoading ? "Verifying..." : "Enter Portal"}
-                  </button>
-                </form>
-
-                <div className="portal-google-auth">
-                  <p className="portal-auth-divider">
-                    <span>or continue with</span>
-                  </p>
-                  {GOOGLE_CLIENT_ID ? (
-                    <>
-                      <div id="google-signin-button-login" className="portal-google-button-host"></div>
-                      {!googleSignInReady && !googleSignInFailed && (
-                        <p className="portal-google-hint">Loading Google Sign-In...</p>
-                      )}
-                      {googleSignInFailed && (
-                        <>
-                          <p className="portal-google-hint">
-                            Google Sign-In could not load. Check network/adblock and retry.
-                          </p>
-                          <button
-                            type="button"
-                            className="portal-google-retry-btn"
-                            onClick={handleGoogleRetry}
-                          >
-                            Retry Google Sign-In
-                          </button>
-                        </>
-                      )}
-                    </>
-                  ) : (
-                    <p className="portal-google-hint">Google Sign-In is not configured.</p>
-                  )}
-                </div>
-              </>
-            )}
-
-            {authView === "signup" && (
-              <>
-                <form className="portal-auth-form" onSubmit={handlePortalSignup}>
-                  <input
-                    type="text"
-                    placeholder="Username"
-                    value={signupData.username}
-                    onChange={(event) => setSignupData({ ...signupData, username: event.target.value })}
-                    required
-                  />
-                  <input
-                    type="email"
-                    placeholder="Email"
-                    value={signupData.email}
-                    onChange={(event) => setSignupData({ ...signupData, email: event.target.value })}
-                  />
-                  <input
-                    type="text"
-                    placeholder="First Name"
-                    value={signupData.first_name}
-                    onChange={(event) => setSignupData({ ...signupData, first_name: event.target.value })}
-                  />
-                  <input
-                    type="text"
-                    placeholder="Last Name"
-                    value={signupData.last_name}
-                    onChange={(event) => setSignupData({ ...signupData, last_name: event.target.value })}
-                  />
-                  <input
-                    type="password"
-                    placeholder="Password"
-                    value={signupData.password}
-                    onChange={(event) => setSignupData({ ...signupData, password: event.target.value })}
-                    required
-                  />
-                  <button type="submit" disabled={authLoading}>
-                    {authLoading ? "Creating..." : "Create Account"}
-                  </button>
-                </form>
-
-                <div className="portal-google-auth">
-                  <p className="portal-auth-divider">
-                    <span>or sign up with</span>
-                  </p>
-                  {GOOGLE_CLIENT_ID ? (
-                    <>
-                      <div id="google-signin-button-signup" className="portal-google-button-host"></div>
-                      {!googleSignInReady && !googleSignInFailed && (
-                        <p className="portal-google-hint">Loading Google Sign-In...</p>
-                      )}
-                      {googleSignInFailed && (
-                        <>
-                          <p className="portal-google-hint">
-                            Google Sign-In could not load. Check network/adblock and retry.
-                          </p>
-                          <button
-                            type="button"
-                            className="portal-google-retry-btn"
-                            onClick={handleGoogleRetry}
-                          >
-                            Retry Google Sign-In
-                          </button>
-                        </>
-                      )}
-                    </>
-                  ) : (
-                    <p className="portal-google-hint">Google Sign-In is not configured.</p>
-                  )}
-                </div>
-              </>
-            )}
-
-            {authView === "forgot" && (
-              <div className="portal-forgot-wrap">
-                <form className="portal-auth-form" onSubmit={handlePortalForgotPassword}>
-                  <input
-                    type="text"
-                    placeholder="Username or Email"
-                    value={forgotData.username_or_email}
-                    onChange={(event) => setForgotData({ username_or_email: event.target.value })}
-                    required
-                  />
-                  <button type="submit" disabled={authLoading}>
-                    {authLoading ? "Generating..." : "Get Reset Code"}
-                  </button>
-                </form>
-
-                <form className="portal-auth-form" onSubmit={handlePortalResetPassword}>
-                  <input
-                    type="text"
-                    placeholder="Username"
-                    value={resetData.username}
-                    onChange={(event) => setResetData({ ...resetData, username: event.target.value })}
-                    required
-                  />
-                  <input
-                    type="text"
-                    placeholder="Reset Code"
-                    value={resetData.code}
-                    onChange={(event) => setResetData({ ...resetData, code: event.target.value })}
-                    required
-                  />
-                  <input
-                    type="password"
-                    placeholder="New Password"
-                    value={resetData.new_password}
-                    onChange={(event) =>
-                      setResetData({ ...resetData, new_password: event.target.value })
-                    }
-                    required
-                  />
-                  <button type="submit" disabled={authLoading}>
-                    {authLoading ? "Updating..." : "Reset Password"}
-                  </button>
-                </form>
-
-                {resetCodePreview && (
-                  <p className="portal-reset-dev-note">
-                    Reset code (dev preview): <b>{resetCodePreview}</b>
-                  </p>
-                )}
-              </div>
-            )}
-
-            <div className="portal-bypass-wrap">
-              <button
-                type="button"
-                className="portal-bypass-btn"
-                onClick={handlePortalBypass}
-                disabled={authLoading}
-              >
-                {authLoading ? "Opening..." : "Bypass"}
-              </button>
-              <p>Skip login/signup and open the citizen panel directly.</p>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div
       className={`app-container ${portalTheme === "light" ? "portal-theme-light" : ""} ${
@@ -2552,11 +2315,6 @@ function App() {
             </button>
           ))}
         </nav>
-
-        <button type="button" className="portal-side-logout" onClick={handlePortalLogout}>
-          <span className="portal-side-icon"><PortalIcon type="logout" /></span>
-          <span>Logout</span>
-        </button>
       </aside>
 
       <header className="main-header">
