@@ -64,7 +64,9 @@ PORTAL_BYPASS_USERNAME = "portal_bypass"
 
 
 def _is_worker(user):
-    return user.groups.filter(name=WORKER_GROUP_NAME).exists()
+    if not user:
+        return False
+    return user.groups.filter(name=WORKER_GROUP_NAME).exists() or hasattr(user, "worker_profile")
 
 
 def _get_or_create_worker_profile(user):
@@ -248,7 +250,11 @@ def worker_login(request):
     if not _is_worker(user):
         return Response({"detail": "This account is not registered as a worker."}, status=403)
 
-    worker_role = _resolve_worker_role(user)
+    if not user.is_active:
+        return Response({"detail": "Worker account is inactive. Please contact admin."}, status=403)
+
+    profile = _get_or_create_worker_profile(user)
+    worker_role = profile.role if profile else WorkerProfile.ROLE_SANITATION
     token, _ = Token.objects.get_or_create(user=user)
     return Response(
         {
@@ -259,9 +265,36 @@ def worker_login(request):
                 "name": f"{user.first_name} {user.last_name}".strip() or user.username,
                 "email": user.email,
                 "role": worker_role,
+                "employee_id": profile.employee_id if profile else "",
+                "phone_number": profile.phone_number if profile else "",
+                "assigned_area": profile.assigned_area if profile else "General Area",
+                "is_active": user.is_active,
             },
         }
     )
+
+
+@api_view(["GET"])
+@authentication_classes([TokenAuthentication])
+@permission_classes([IsAuthenticated])
+def worker_profile_view(request):
+    if not _is_worker(request.user):
+        return Response({"detail": "Worker account access required."}, status=403)
+
+    profile = _get_or_create_worker_profile(request.user)
+    today_start = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
+
+    assigned_qs = Complaint.objects.filter(assigned_to=request.user)
+    today_count = assigned_qs.filter(created_at__gte=today_start).count()
+    pending_count = assigned_qs.filter(status__in=["Pending", "Accepted", "Assigned"]).count()
+    completed_count = assigned_qs.filter(status="Resolved").count()
+
+    serializer = WorkerProfileSerializer(profile)
+    data = serializer.data
+    data["today_task_count"] = today_count
+    data["pending_task_count"] = pending_count
+    data["completed_task_count"] = completed_count
+    return Response(data)
 
 
 @api_view(["POST"])
@@ -354,6 +387,20 @@ def worker_reset_password(request):
     return Response({"detail": "Password reset successful. Please login again."})
 
 
+@api_view(["POST"])
+@authentication_classes([TokenAuthentication])
+@permission_classes([IsAuthenticated])
+def worker_register_fcm_token(request):
+    fcm_token = request.data.get("token")
+    if not fcm_token:
+        return Response({"detail": "FCM token is required."}, status=400)
+
+    profile, _ = WorkerProfile.objects.get_or_create(user=request.user)
+    profile.fcm_token = fcm_token
+    profile.save(update_fields=["fcm_token"])
+    return Response({"detail": "FCM token registered successfully."})
+
+
 @api_view(["GET"])
 @authentication_classes([TokenAuthentication])
 @permission_classes([IsAuthenticated])
@@ -392,7 +439,7 @@ def worker_update_complaint_status(request, complaint_id):
         return Response({"detail": "Complaint is assigned to another worker."}, status=403)
 
     status_value = request.data.get("status")
-    valid_statuses = {"In Progress", "Resolved"}
+    valid_statuses = {"Accepted", "In Progress", "Resolved"}
     if status_value not in valid_statuses:
         return Response(
             {"detail": f"Invalid status. Allowed values: {', '.join(sorted(valid_statuses))}."},
@@ -406,9 +453,9 @@ def worker_update_complaint_status(request, complaint_id):
             status=400,
         )
 
-    if status_value == "Resolved" and current_status != "In Progress":
+    if status_value == "Resolved" and current_status not in {"In Progress", "Accepted"}:
         return Response(
-            {"detail": "Click Start Work first. Complaint must be In Progress before resolving."},
+            {"detail": "Click Start Work first before resolving."},
             status=400,
         )
 
@@ -416,6 +463,10 @@ def worker_update_complaint_status(request, complaint_id):
     skip_ai = skip_ai_raw in ("true", "1", "yes")
 
     after_video = request.FILES.get("after_video")
+    after_image = request.FILES.get("after_image")
+    if after_image:
+        complaint.after_image = after_image
+
     verification_result = None
 
     if skip_ai:
@@ -465,9 +516,9 @@ def worker_update_complaint_status(request, complaint_id):
         after_video.seek(0)
         complaint.after_video = after_video
 
-    if status_value == "Resolved" and not after_video and not complaint.after_video and not skip_ai:
+    if status_value == "Resolved" and not after_video and not complaint.after_video and not after_image and not complaint.after_image:
         return Response(
-            {"detail": "Upload AFTER live video before marking complaint as resolved."},
+            {"detail": "Upload AFTER live video or image before marking complaint as resolved."},
             status=400,
         )
 

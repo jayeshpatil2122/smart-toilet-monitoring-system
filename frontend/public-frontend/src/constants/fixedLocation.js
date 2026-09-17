@@ -19,11 +19,22 @@ export const buildMapsDirectionUrl = (
   originLatitude,
   originLongitude
 ) => {
-  const origin =
-    Number.isFinite(Number(originLatitude)) && Number.isFinite(Number(originLongitude))
-      ? `${originLatitude},${originLongitude}`
-      : `${DEFAULT_MAP_CENTER.latitude},${DEFAULT_MAP_CENTER.longitude}`;
+  const destLat = Number(destinationLatitude);
+  const destLng = Number(destinationLongitude);
 
-  return `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destinationLatitude},${destinationLongitude}`;
+  if (!Number.isFinite(destLat) || !Number.isFinite(destLng)) {
+    return "";
+  }
+
+  const originLat = Number(originLatitude);
+  const originLng = Number(originLongitude);
+
+  const originParam =
+    Number.isFinite(originLat) && Number.isFinite(originLng)
+      ? `&origin=${originLat},${originLng}`
+      : "";
+
+  return `https://www.google.com/maps/dir/?api=1${originParam}&destination=${destLat},${destLng}`;
 };
+
 

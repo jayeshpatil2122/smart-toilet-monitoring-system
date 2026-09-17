@@ -151,15 +151,21 @@ function NearestToiletsSection({
                     type="button"
                     className="nearest-navigate-btn"
                     onClick={() => {
-                      window.open(
-                        buildMapsDirectionUrl(
-                          toilet.latitude,
-                          toilet.longitude,
-                          userLocation?.latitude,
-                          userLocation?.longitude
-                        ),
-                        "_blank"
+                      if (!Number.isFinite(Number(toilet?.latitude)) || !Number.isFinite(Number(toilet?.longitude))) {
+                        alert("Toilet coordinates are unavailable.");
+                        return;
+                      }
+                      const url = buildMapsDirectionUrl(
+                        toilet.latitude,
+                        toilet.longitude,
+                        userLocation?.latitude,
+                        userLocation?.longitude
                       );
+                      if (url) {
+                        window.open(url, "_blank");
+                      } else {
+                        alert("Toilet coordinates are unavailable.");
+                      }
                     }}
                   >
                     {t("navigate", language)}

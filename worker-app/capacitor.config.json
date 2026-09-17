@@ -1,0 +1,10 @@
+{
+  "appId": "com.sanitrax.worker",
+  "appName": "Sanitrax Worker",
+  "webDir": "build",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "http",
+    "cleartext": true
+  }
+}

@@ -13,6 +13,10 @@ class Complaint(models.Model):
         ('Dirty', 'Dirty'),
         ('No Water', 'No Water'),
         ('Broken', 'Broken'),
+        ('No Handwash/Soap', 'No Handwash / Soap'),
+        ('No Ramp/Accessibility', 'No Ramp / Wheelchair Access'),
+        ('Bad Odor', 'Bad Odor / Foul Smell'),
+        ('No Electricity/Light', 'No Electricity / Lighting'),
         ('Other', 'Other'),
     ]
 
@@ -102,9 +106,9 @@ class Complaint(models.Model):
 
     # This function sets priority automatically based on issue type
     def set_priority(self):
-        if self.issue_type in ['No Water', 'Broken']:
+        if self.issue_type in ['No Water', 'Broken', 'No Electricity/Light']:
             self.priority = 'High'
-        elif self.issue_type == 'Dirty':
+        elif self.issue_type in ['Dirty', 'No Handwash/Soap', 'Bad Odor', 'No Ramp/Accessibility']:
             self.priority = 'Medium'
         else:
             self.priority = 'Low'
@@ -112,10 +116,12 @@ class Complaint(models.Model):
     # This function runs every time complaint is saved
     def save(self, *args, **kwargs):
         previous_status = None
+        previous_assigned_to_id = None
         if self.pk:
-            previous_status = (
-                Complaint.objects.filter(pk=self.pk).values_list("status", flat=True).first()
-            )
+            old_vals = Complaint.objects.filter(pk=self.pk).values("status", "assigned_to_id").first()
+            if old_vals:
+                previous_status = old_vals.get("status")
+                previous_assigned_to_id = old_vals.get("assigned_to_id")
 
         # Automatically set priority before saving
         self.set_priority()
@@ -137,6 +143,25 @@ class Complaint(models.Model):
             self.resolution_time = None
 
         super().save(*args, **kwargs)
+
+        # Trigger FCM push notification on NEW assignment or RE-ASSIGNMENT
+        if self.assigned_to_id and self.assigned_to_id != previous_assigned_to_id:
+            try:
+                from workers.models import WorkerProfile
+                from workers.fcm_service import send_fcm_push_notification
+                profile = WorkerProfile.objects.filter(user_id=self.assigned_to_id).first()
+                if profile and profile.fcm_token:
+                    toilet_name = self.toilet.name if self.toilet_id else "Public Toilet"
+                    title = "New Sanitrax Complaint Assigned"
+                    body = f"Complaint #{self.id} • {self.priority} Priority • {self.issue_type} • {toilet_name}"
+                    data_payload = {
+                        "type": "complaint_assignment",
+                        "complaint_id": str(self.id)
+                    }
+                    send_fcm_push_notification(profile.fcm_token, title, body, data_payload)
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(f"FCM assignment push notice: {e}")
 
         # Reset toilet health metrics when complaint is resolved.
         if (

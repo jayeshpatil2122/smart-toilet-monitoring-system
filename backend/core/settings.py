@@ -16,7 +16,7 @@ DEBUG = os.environ.get("DEBUG", "True").lower() in ("true", "1", "yes")
 
 ALLOWED_HOSTS = [
     host.strip()
-    for host in os.environ.get("ALLOWED_HOSTS", "127.0.0.1,localhost").split(",")
+    for host in os.environ.get("ALLOWED_HOSTS", "127.0.0.1,localhost,10.124.40.180,smart-toilet-monitoring-system-production.up.railway.app,.up.railway.app").split(",")
     if host.strip()
 ]
 

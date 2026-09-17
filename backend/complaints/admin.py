@@ -126,7 +126,7 @@ class ComplaintAdmin(admin.ModelAdmin):
                 )
         except Exception:
             pass
-        return format_html('<span style="color:#9ca3af;font-style:italic;">No Location</span>')
+        return format_html('<span style="color:#9ca3af;font-style:italic;">{}</span>', "Location unavailable")
 
     location_preview.short_description = "Complaint Location"
 
@@ -145,7 +145,7 @@ class ComplaintAdmin(admin.ModelAdmin):
                 )
         except Exception:
             pass
-        return format_html('<span style="color:#9ca3af;font-style:italic;">No Solving Location</span>')
+        return format_html('<span style="color:#9ca3af;font-style:italic;">{}</span>', "Location unavailable")
 
     solving_location_preview.short_description = "Worker Solving Location"
 
@@ -172,7 +172,7 @@ class ComplaintAdmin(admin.ModelAdmin):
                 )
         except Exception:
             pass
-        return format_html('<span style="color:#9ca3af;font-style:italic;">Pending</span>')
+        return format_html('<span style="color:#9ca3af;font-style:italic;">{}</span>', "Pending")
 
     verification_status_badge.short_description = "Location Verification"
 

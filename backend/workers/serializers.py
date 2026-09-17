@@ -6,6 +6,37 @@ from toilets.models import ToiletAlert
 from .models import WorkerProfile
 
 
+class WorkerProfileSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(source="user.username", read_only=True)
+    email = serializers.CharField(source="user.email", read_only=True)
+    first_name = serializers.CharField(source="user.first_name", read_only=True)
+    last_name = serializers.CharField(source="user.last_name", read_only=True)
+    full_name = serializers.SerializerMethodField()
+    is_active = serializers.BooleanField(source="user.is_active", read_only=True)
+
+    def get_full_name(self, obj):
+        name = f"{obj.user.first_name} {obj.user.last_name}".strip()
+        return name if name else obj.user.username
+
+    class Meta:
+        model = WorkerProfile
+        fields = [
+            "id",
+            "username",
+            "email",
+            "first_name",
+            "last_name",
+            "full_name",
+            "employee_id",
+            "phone_number",
+            "assigned_area",
+            "role",
+            "is_active",
+            "created_at",
+            "updated_at",
+        ]
+
+
 class WorkerSignupSerializer(serializers.Serializer):
     username = serializers.CharField(max_length=150)
     email = serializers.EmailField(required=False, allow_blank=True)

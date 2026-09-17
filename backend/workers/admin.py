@@ -12,6 +12,11 @@ class WorkerPasswordResetAdmin(admin.ModelAdmin):
 
 @admin.register(WorkerProfile)
 class WorkerProfileAdmin(admin.ModelAdmin):
-    list_display = ("id", "user", "role", "created_at", "updated_at")
-    list_filter = ("role", "created_at")
-    search_fields = ("user__username", "user__email")
+    list_display = ("id", "user", "employee_id", "phone_number", "assigned_area", "role", "is_active", "created_at")
+    list_filter = ("role", "user__is_active", "created_at")
+    search_fields = ("user__username", "user__email", "user__first_name", "user__last_name", "employee_id", "phone_number", "assigned_area")
+
+    def is_active(self, obj):
+        return obj.user.is_active
+    is_active.boolean = True
+    is_active.short_description = "Active Status"

@@ -1,10 +1,16 @@
 # Python cache
 __pycache__/
+**/__pycache__/
 *.py[cod]
 *$py.class
+*.pyo
+*.pyd
 
 # Virtual Environment
 venv/
+**/venv/
+.venv/
+**/.venv/
 env/
 ENV/
 
@@ -15,16 +21,48 @@ db.sqlite3
 
 # Environment variables
 .env
+.env.*
+!.env.example
 
-# VS Code
+# Local JDK & SDK installations (DO NOT COMMIT)
+worker-app/jdk17/
+worker-app/jdk21/
+worker-app/android-sdk/
+**/jdk17/
+**/jdk21/
+**/android-sdk/
+
+# Local scratch / testing scripts (DO NOT COMMIT)
+scratch/
+**/scratch/
+
+# VS Code / IDE / OS files
 .vscode/
-
-# Static files (if collected)
-staticfiles/
-
-# Media files (optional)
-media/
-
-# OS files
+.idea/
 .DS_Store
 Thumbs.db
+
+# Static files & media
+staticfiles/
+media/
+
+# Node & Frontend Dependencies / Builds
+node_modules/
+**/node_modules/
+build/
+**/build/
+dist/
+**/dist/
+
+# Android & Gradle generated artifacts
+.gradle/
+**/.gradle/
+*.apk
+*.aab
+
+# Firebase credentials & private keys
+google-services.json
+**/google-services.json
+firebase-service-account.json
+**/*service-account*.json
+**/*firebase-admin*.json

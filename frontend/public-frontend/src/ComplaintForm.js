@@ -387,6 +387,10 @@ const getUserLocation = () => {
           <option value="Dirty">{t("issue_dirty", language)}</option>
           <option value="No Water">{t("issue_no_water", language)}</option>
           <option value="Broken">{t("issue_broken", language)}</option>
+          <option value="No Handwash/Soap">{t("issue_no_handwash", language)}</option>
+          <option value="No Ramp/Accessibility">{t("issue_no_ramp", language)}</option>
+          <option value="Bad Odor">{t("issue_bad_odor", language)}</option>
+          <option value="No Electricity/Light">{t("issue_no_light", language)}</option>
           <option value="Other">{t("issue_other", language)}</option>
         </select>
       </div>

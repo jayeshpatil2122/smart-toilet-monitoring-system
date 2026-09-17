@@ -312,8 +312,6 @@ function App() {
     error: null,
     permissionStatus: "prompt",
   });
-  const watchIdRef = useRef(null);
-
   const voiceRecognitionRef = useRef(null);
   const welcomeSpokenTokenRef = useRef("");
   const cleanestListRef = useRef(null);
@@ -334,7 +332,7 @@ function App() {
 
     const options = {
       enableHighAccuracy: true,
-      maximumAge: 5000,
+      maximumAge: 30000,
       timeout: 10000,
     };
 
@@ -375,20 +373,10 @@ function App() {
     };
 
     navigator.geolocation.getCurrentPosition(handleSuccess, handleError, options);
-
-    if (watchIdRef.current !== null) {
-      navigator.geolocation.clearWatch(watchIdRef.current);
-    }
-    watchIdRef.current = navigator.geolocation.watchPosition(handleSuccess, handleError, options);
   }, []);
 
   useEffect(() => {
     startWatchingLocation();
-    return () => {
-      if (watchIdRef.current !== null) {
-        navigator.geolocation.clearWatch(watchIdRef.current);
-      }
-    };
   }, [startWatchingLocation]);
 
   const [myComplaints, setMyComplaints] = useState([]);
@@ -1499,16 +1487,21 @@ function App() {
   };
 
   const handleNavigateToToilet = (toilet) => {
-    if (!toilet || !hasCoordinates(toilet)) return;
-    window.open(
-      buildMapsDirectionUrl(
-        toilet.latitude,
-        toilet.longitude,
-        userLocation?.latitude,
-        userLocation?.longitude
-      ),
-      "_blank"
+    if (!toilet || !hasCoordinates(toilet)) {
+      alert("Toilet coordinates are unavailable.");
+      return;
+    }
+    const url = buildMapsDirectionUrl(
+      toilet.latitude,
+      toilet.longitude,
+      userLocation?.latitude,
+      userLocation?.longitude
     );
+    if (url) {
+      window.open(url, "_blank");
+    } else {
+      alert("Toilet coordinates are unavailable.");
+    }
   };
 
   const handleVoiceToiletSearch = () => {

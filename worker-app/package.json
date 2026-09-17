@@ -1,0 +1,42 @@
+{
+  "name": "sanitrax-worker-app",
+  "version": "0.1.0",
+  "private": true,
+  "dependencies": {
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/camera": "^8.2.4",
+    "@capacitor/cli": "^8.5.2",
+    "@capacitor/core": "^8.5.2",
+    "@capacitor/local-notifications": "^8.3.1",
+    "@capacitor/push-notifications": "^8.1.2",
+    "axios": "^1.13.5",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-router-dom": "^6.28.0",
+    "react-scripts": "5.0.1"
+  },
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject"
+  },
+  "eslintConfig": {
+    "extends": [
+      "react-app",
+      "react-app/jest"
+    ]
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  }
+}

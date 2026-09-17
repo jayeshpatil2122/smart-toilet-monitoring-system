@@ -1,0 +1,46 @@
+# dependencies
+/node_modules
+/.pnp
+.pnp.js
+
+# testing
+/coverage
+
+# production
+/build
+
+# misc
+.DS_Store
+.env
+.env.*
+!.env.example
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Firebase credentials & private keys
+google-services.json
+**/google-services.json
+*service-account*.json
+**/*service-account*.json
+
+# Local JDK & SDK installations (DO NOT COMMIT)
+jdk17/
+jdk21/
+android-sdk/
+**/jdk17/
+**/jdk21/
+**/android-sdk/
+
+# Local scratch / testing scripts (DO NOT COMMIT)
+scratch/
+**/scratch/
+
+# Android / Gradle build artifacts
+.gradle/
+**/.gradle/
+**/build/
+*.apk
+*.aab
+
